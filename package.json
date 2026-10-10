@@ -11,7 +11,9 @@
     "enable-offline": "node scripts/enable-offline-png-config.mjs --mock-llm",
     "local-image": "node scripts/local-image-service.js",
     "dev": "node --watch server.js",
-    "check": "node tests/selfcheck.js"
+    "check": "node tests/selfcheck.js",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "data:prune": "node scripts/prune-data.mjs"
   },
   "optionalDependencies": {
     "sharp": "^0.35.5"

@@ -59,19 +59,46 @@ const unique = [...new Set(targets)];
 const hits = [];
 let scannedFields = 0;
 
+// 值像不像"真正的凭据"：真 Key 不含空格；命令/路径/说明一律排除
+const looksLikeCredential = (v) => {
+  const s = String(v || '').trim();
+  if (s.length < 8) return false;
+  if (/\s/.test(s)) return false;             // 含空格 → 命令或描述，不是 Key
+  if (PLACEHOLDER.test(s)) return false;      // 占位符
+  if (/^[\w./\\-]+\.(js|mjs|json|md|sh|cmd|exe)$/i.test(s)) return false; // 文件路径
+  return true;
+};
+
+// JSON 优先：按真实结构遍历，避免 "check:secrets": "node ..." 这类字符串被误判
+function walkJson(node, file, trail = '') {
+  if (node === null || typeof node !== 'object') return;
+  if (Array.isArray(node)) { node.forEach((v, i) => walkJson(v, file, `${trail}[${i}]`)); return; }
+  for (const [k, v] of Object.entries(node)) {
+    const p = trail ? `${trail}.${k}` : k;
+    if (typeof v === 'string') {
+      if (SECRET_FIELD.test(k)) {
+        scannedFields += 1;
+        if (looksLikeCredential(v)) hits.push({ file, field: p, len: v.trim().length });
+      }
+    } else walkJson(v, file, p);
+  }
+}
+
 for (const file of unique) {
+  const rel = path.relative(ROOT, file).replace(/\\/g, '/');
   let text;
   try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
-  // 只做浅层正则匹配：JSON 与 YAML 都能覆盖到 "field": "value" / field: value
-  const re = /["']?([A-Za-z_][A-Za-z0-9_.-]*)["']?\s*[:=]\s*["']([^"'\n]*)["']/g;
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch { parsed = null; }
+  if (parsed !== null && typeof parsed === 'object') { walkJson(parsed, rel); continue; }
+  // 非 JSON 兜底：必须整体带引号的 key，避免 :secrets" 这种半截匹配
+  const re = /["']([A-Za-z_][A-Za-z0-9_.-]*)["']\s*[:=]\s*["']([^"'\n]*)["']/g;
   let m;
   while ((m = re.exec(text))) {
     if (!SECRET_FIELD.test(m[1])) continue;
-    const value = m[2] || '';
-    if (value.length < 8) continue;          // 空串/短占位不算
-    if (PLACEHOLDER.test(value.trim())) continue;
     scannedFields += 1;
-    hits.push({ file: path.relative(ROOT, file).replace(/\\/g, '/'), field: m[1], len: value.length });
+    const value = m[2] || '';
+    if (looksLikeCredential(value)) hits.push({ file: rel, field: m[1], len: value.trim().length });
   }
 }
 
