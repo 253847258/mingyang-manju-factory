@@ -1,0 +1,107 @@
+{
+  "task_id": "C-001",
+  "receiver_role": "architect",
+  "priority": "P0",
+  "phase_status": "assigned",
+  "_wave": 1,
+  "_round": 2,
+  "round_p0_goal": "第 2 轮 P0：收敛 L6 独立验收留下的中/中低危风险，并让已落地能力在真实路径上加固 —— ① 修 RK-L6-01 主画布保护接口层 fail-open；② 落地 T-107 S-10 单轮 tick 触发上限；③ 治理 RK-L6-06 全量自检改写真实 config/config.json；④ 固化 occurrence_at 服务端窗口键裁决。全程：不重启 8788、不改既有测试期望、bash scripts/verify-all.sh 仍 exit=0 且 30 阶段不漏、前 25 阶段 2098 断言守恒。",
+  "task": "冻结第 2 轮 P0 契约与处置台账：给 C-002/C-003/C-004 可直接照抄的接口/字段/错误码/中文文案；完成 RK-L6-02/04/05 与 occurrence_at 的裁决回写。只写报告，不碰源码与测试。",
+  "context": {
+    "original_request": "把第 2 轮 P0 目标拆成任务卡与 DAG，让 W2 开发线照着卡就能实现；本轮 P0 来自第 1 轮 L6 独立验收报告的残余风险清单与「未做项」。",
+    "repo_constraints": "零依赖 Node≥22 ESM；禁止 npm 依赖；禁止重启 8788（该进程正在服务 GUI）；禁止改既有测试期望凑绿；中文报错与中文注释；改既有文件前先 cp <file>.bak；测试一律用 mkdtemp 临时库与临时 config，不碰 data/factory.db 与 config/config.json。",
+    "upstream_evidence": [
+      "strategist/reports/README.md:75-79（第 1 轮收口报告 §8：RK-L6-01/06/05、occurrence_at 待裁决、S-10 与 canvas-perf 未做）",
+      "strategist/reports/L6-verify.md:425-430（§6 风险与残留表，逐条给文件:行号与实测输出）",
+      "strategist/reports/L6-verify.md:245-286（RT-03 红队实测：第⑤步 :266 为 NEED_CONFIRM affected=5，第⑨b 步 :276 为 ok=true affected=5 请求数=10）",
+      "strategist/reports/L6-verify.md:421-433（§7 复现清单与红线自查）",
+      "strategist/reports/T-101-schedules-spec.md:645-649（§9.6 手动触发契约：请求体可带 occurrence_at）",
+      "strategist/reports/T-107-security-risks.md:68（S-04 高：手动触发窗口键由请求方给 → 去重被绕开）",
+      "strategist/reports/T-107-security-risks.md:74（S-10 中：单轮 tick 无触发条数上限）",
+      "strategist/reports/T-103-canvas-select-spec.md（AC-3 主画布硬闸门契约）",
+      "strategist/runs/T-105.json:80（已预见 actors.js md5 基线会过期）"
+    ]
+  },
+  "dependencies": [],
+  "write_scope": [
+    "strategist/reports/C-001-round2-contract.md",
+    "strategist/reports/T-106-test-plan.md",
+    "strategist/reports/T-106-test-plan.md.bak"
+  ],
+  "interface_contract": [
+    "【canvas-select·画布自证】web/lib/canvas-select.js 的 planBatch 计划里 canvasId 取值优先级改为三级：opts.canvasId → params.canvasId → items 中首个非空 node.canvas_id（entryOf 当前在 web/lib/canvas-select.js:243-265，新增只读字段 canvasId，不得改动入参对象）。新增计划字段 canvasSource，取值 ∈ 'opts' | 'params' | 'items' | 'none'，三级皆空为 'none'。makePlanBase 当前在 web/lib/canvas-select.js:485-511，其中 :486 取值、:502 的 mainCanvas: isMainCanvas(canvasId) 语义保持。",
+    "【canvas-select·缺省拒绝】仅对删除动作的整画布语义收紧：当 canvasSource === 'none' 且（params.scope === 'all' 或 coversAll 成立）→ return fail(plan, 'CANVAS_ID_REQUIRED', '未提供画布 ID，无法确认是否为主画布，已拒绝整画布批量删除：请传 canvasId（或 canvasTotal）后重试')。判定顺序：自证成功 → 先走既有 MAIN_CANVAS_GUARD（web/lib/canvas-select.js:716），再走 scope/覆盖判定；自证失败 → CANVAS_ID_REQUIRED 必须早于 NEED_CONFIRM 闸门（web/lib/canvas-select.js:955-995）。部分选区（coversAll 不成立）与 move/resize/group/lock/unlock/rerun-kinds 行为一字不改。",
+    "【canvas-select·不可落地】applyBatchPlan 对 code === 'CANVAS_ID_REQUIRED' 必须与 MAIN_CANVAS_GUARD 同路径拒绝：ok === false、effects 为空数组、code 与 reason 原样透传；既有分支在 web/lib/canvas-select.js:1081-1088（code 非 OK 且非 NEED_CONFIRM 即 applyFail），只要保持 fail() 后 ok=false 即满足，禁止让新码进入 effects 分支。",
+    "【canvas-select·冻结面】不得改：isMainCanvas（web/lib/canvas-select.js:283，硬编码 'CV-MAIN' + trim 语义，被 tests/canvas-select.test.mjs:307 的 'true|false|true' 断言锁定）；BATCH_MESSAGES.mainCanvasGuard 文案（:716 与 tests/canvas-select.test.mjs:298 断言）；CANVAS_DELETE_FORBIDDEN 语义（:707）。",
+    "【schedules·单轮上限字段】src/schedules.js 的 SCHEDULE_DEFAULTS（src/schedules.js:38-56）新增 maxFiresPerTick: 20；schedulesConfig（src/schedules.js:166-184）归一为 clamp：Math.min(200, Math.max(1, Math.trunc(Number(merged.maxFiresPerTick) || SCHEDULE_DEFAULTS.maxFiresPerTick)))，NaN / 0 / 负数 / 超界一律夹紧，禁止抛错；配置来源为 config/config.json 的 schedules.maxFiresPerTick（可选键，缺失即默认 20）。",
+    "【schedules·新判定码】SCHEDULE_RUN_REASON_CODES（src/schedules.js:31-37）追加 'skipped_round_cap'；SCHEDULE_REASON_TEXT（src/schedules.js:61-65）追加中文 '单轮触发条数已达上限'；runStatusFor（src/schedules.js:996-1002）不得改 —— 该码仍归 status='skipped'，因此 SCHEDULE_RUN_STATUSES 五元组保持 'fired,deduped,skipped,missed,failed'（tests/test-schedules.js 尾部既有断言依赖它）。",
+    "【schedules·截断语义（本卡最关键的一条）】tickSchedules（src/schedules.js:1533-1601）在 for (const item of scan.due) 循环内，仅当本项原本会走 fireSchedule（即非 dry、非 skipped_no_target）且 fired.length >= cap 时截断：a) 只做 skipped.push({ id, name, reasonCode: 'skipped_round_cap', reason: '单轮触发条数已达上限（本轮最多触发 ' + cap + ' 条），该窗口留待下一轮', occurrence: item.occurrence, missed: item.missed, recorded: false })；b) 调 recordSkipCounters（src/schedules.js:1508-1516）只更新 schedules.skip_count / last_status / updated_at，且**不传 nextRunAt**（水位线不动）；c) 严禁调 recordSkip / insertRunRow —— 'skipped' 台账行会占用唯一索引 idx_sched_runs_window (schedule_id, window_key, trigger)（src/schedules.js:157 定义、:1416-1429 使用），下一轮同窗口 INSERT OR IGNORE 必被去重（deduped=true），窗口永久丢失；该风险必须写进代码中文注释；d) 被截断项不得进预算闸门、不得建 job、不得建项目。",
+    "【schedules·返回值与可观测】tickSchedules 返回体新增 cap: { limit: cap, fired: fired.length, capped: cappedCount }；既有 jobEvents.emit('schedule:tick', …) 的载荷追加 capped: cappedCount（不新增事件名、不改既有字段）；dry-run 不受上限约束（只判定、不建 job）。",
+    "【schedules·occurrence_at 终局裁决】manual 触发的窗口键一律由服务端生成：fireSchedule（src/schedules.js:1342-1360）的 manual 分支恒用 nowISOStr，忽略传入的 occurrence_at；返回值新增 ignoredOccurrence（manual 且入参非空时为该入参原文，否则 null）。路由层 src/routes/schedules.js:280-298 的既有回显字段名与语义保持不变（本卡不改路由，C-003 也不改）。auto 分支保留 src/schedules.js:1353 的既有行为（tests/test-schedules.js:305/328/339 依赖 occurrence_at 指定窗口）。本裁决以 T-107 S-04 为准，T-101 §9.6「请求体 occurrence_at 生效」一句按本裁决作废。",
+    "【ui-simulate·副作用口径】全量自检跑完后 config/config.json 必须字节一致（md5 相同）；阶段 23（tests/ui-simulate.py）断言数只增不减，基线 172（README.md:11 与阶段 23 计数行口径一致）。",
+    "【基线口径】第 2 轮一律按「6 张验收卡 / 5 个测试套件」表述（RK-L6-04）；第 1 轮 5 个套件基线为 116 / 101 / 222 / 67 / 89，合 595；前 25 阶段合计 2098，30 阶段合计 2693（README.md:11）。",
+    "【台账纠偏（新增项，需在本卡报告中如实记录，不得顺手改第 1 轮报告）】把 strategist/tasks 全量喂给校验器实测：第 1 轮 34 张卡（不含本轮新卡）已有 2 个 error（V5：strategist/reports/README.md 被 T-506 与 T-701 同时声明；占位符 <上游 FAIL 指定的文件> 被 T-601..T-604 四张卡同时声明），与 strategist/reports/README.md:9 声称的「validate_tasks.py 结果：0 error」不符。本卡只在 C-001-round2-contract.md 中记录该事实与复现命令（cp 到 /tmp 后单跑校验器），并注明「纠偏第 1 轮报告需另开卡，本卡不越界」。"
+  ],
+  "implementation_steps": [
+    "1) 先 cp strategist/reports/T-106-test-plan.md strategist/reports/T-106-test-plan.md.bak，并记录 md5sum 作为回滚凭据。",
+    "2) 打开 strategist/reports/L6-verify.md §6（:421-433）逐条读取 RK-L6-01/02/03/04/05/06 的事实与建议处置，把「建议」翻成本卡的 interface_contract 条目。",
+    "3) 实跑取证（只读命令，不改任何文件）：grep -n 定位 web/lib/canvas-select.js:486/502/716 与 src/schedules.js:31/38/1533/1508；md5sum web/views/actors.js web/lib/canvas-select.js src/schedules.js tests/canvas-select.test.mjs tests/test-schedules.js。",
+    "4) 新建 strategist/reports/C-001-round2-contract.md，按 5 节组织：① interface_contract 全文（含错误码与中文文案原文）② C-002/C-003/C-004 的步骤-验收点索引表 ③ occurrence_at 终局裁决与作废声明 ④ RK-L6-02/04/05 裁决 ⑤ P1 未做项与理由（RK-L6-03 canvas-perf 零接线，理由：既有渲染行为未改属有意保守，接线需另开卡独占 web/views/actors.js）+ 台账纠偏记录（第 1 轮校验器基线 2 error，复现命令：rm -rf /tmp/c1 && mkdir -p /tmp/c1 && cp strategist/tasks/T-*.yaml /tmp/c1/ && python3 ~/.dsh/skills/junshi-matrix/scripts/validate_tasks.py /tmp/c1）。",
+    "5) 回写 strategist/reports/T-106-test-plan.md：§1.4 的 N1 裁决为 src/self-heal.js、N2 裁决为 src/subtitle-wrap.js（原文保留，改动处加前缀「【第 2 轮裁决】」）；§6.2 用第 3 步取得的真实 md5 替换过期基线，并给出取值命令 md5sum <file>。§7 的基线数字（前 25 阶段 2098）一字不改。",
+    "6) 自检：grep -c '【第 2 轮裁决】' strategist/reports/T-106-test-plan.md 必须 ≥ 3；diff 校验只改了这两处；确认没有触碰任何源码/测试。"
+  ],
+  "acceptance_criteria": [
+    "strategist/reports/C-001-round2-contract.md 落盘且含全部五节，interface_contract 的 12 条逐条给出「签名/字段/错误码/中文文案原文/落点文件:行号」，禁止出现无落点的描述",
+    "第⑤节含台账纠偏记录：给出「第 1 轮 34 张卡基线 2 error」的原始输出与复现命令，并注明纠偏第 1 轮报告需另开卡",
+    "T-106-test-plan.md §1.4 与 §6.2 已回写；改动处带「【第 2 轮裁决】」前缀且原文保留（用 grep -c 证明 ≥3 处）；§7 基线数字未改（grep -n '2098' 命中行内容与 .bak 逐字一致）",
+    "md5 新基线表至少覆盖 web/views/actors.js、web/lib/canvas-select.js、src/schedules.js、tests/canvas-select.test.mjs、tests/test-schedules.js 五个文件，且每个值都能用卡内给出的 md5sum 命令复现",
+    "全文口径统一为「6 张验收卡 / 5 个测试套件」「前 25 阶段 2098 守恒」，无旧口径残留（grep -c '6 个新测试文件' 必须为 0）",
+    "本卡零源码、零测试改动：find . -newermt '-2 hours' -type f 只列出本卡白名单内的文件"
+  ],
+  "quality_checks": [
+    "wc -l strategist/reports/C-001-round2-contract.md",
+    "grep -n 'CANVAS_ID_REQUIRED' strategist/reports/C-001-round2-contract.md",
+    "grep -n 'maxFiresPerTick' strategist/reports/C-001-round2-contract.md",
+    "grep -n 'skipped_round_cap' strategist/reports/C-001-round2-contract.md",
+    "grep -c '【第 2 轮裁决】' strategist/reports/T-106-test-plan.md",
+    "md5sum strategist/reports/T-106-test-plan.md.bak strategist/reports/T-106-test-plan.md",
+    "grep -c '6 个新测试文件' strategist/reports/C-001-round2-contract.md strategist/reports/T-106-test-plan.md"
+  ],
+  "evidence_required": [
+    "文件清单（含行数与 md5）",
+    "12 条 interface_contract 的落点证据（file:line 的 grep 原始输出）",
+    "T-106 回写前后 diff 摘要与 md5 对比",
+    "未解决风险"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文注释与中文报错",
+      "只碰 write_scope 白名单",
+      "改既有文件前先 cp <file>.bak"
+    ],
+    "forbidden": [
+      "引入新依赖",
+      "改白名单外文件",
+      "改既有测试期望以凑绿",
+      "修改任何源码或测试",
+      "重启 8788"
+    ]
+  },
+  "do_not_touch": [
+    "src/**（本卡不写代码）",
+    "web/**（本卡不写代码）",
+    "tests/**",
+    "strategist/reports/L6-verify.md（只读引用，不得改写结论）",
+    "config/config.json 与 data/"
+  ],
+  "handoff_to": [
+    "C-002（web/lib/canvas-select.js：按 interface_contract 第 1~4 条实现）",
+    "C-003（src/schedules.js：按 interface_contract 第 5~9 条实现）",
+    "C-004（tests/ui-simulate.py：按 interface_contract 第 10 条实现）",
+    "C-005（验收：按 interface_contract 第 11 条口径核对计数）"
+  ],
+  "max_rework": 2,
+  "requires_backup": true,
+  "rollback_plan": "改动前执行 cp strategist/reports/T-106-test-plan.md strategist/reports/T-106-test-plan.md.bak；失败时 cp strategist/reports/T-106-test-plan.md.bak strategist/reports/T-106-test-plan.md 还原，并删除新建的 strategist/reports/C-001-round2-contract.md"
+}

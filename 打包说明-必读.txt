@@ -1,0 +1,112 @@
+电影工厂 · 完整工作区备份包
+================================
+
+生成时间：2026-10-03（本机时间）
+来源工作区：/home/linsheng/Desktop/ai-video-factory
+包内根目录：电影工厂/
+
+一、这个包里有什么
+------------------
+  server.js            启动入口（node server.js 或 ./start.sh）
+  src/                 引擎与业务核心（**已做混淆加密**，见第三节）
+  web/                 前端（原生 JS 视图 + 样式，明文 —— 前端代码随浏览器下发，无法真正保密）
+  scripts/             自检/运维脚本（verify-all.sh 全量自检、watchdog.sh 看门狗、
+                       check-test-spend.js 花费哨兵、restore-backends.js 后端恢复 等）
+  tests/               测试与审计套件（明文；混淆后的 src 已用其中 6 个套件做过回归，见第五节）
+  config/              配置（**API 密钥已全部清空**，见第二节）+ 历史备份副本
+  docs/                用户手册、模型对接参考、模拟发现的问题与修复 等文档
+  strategist/          开发治理留痕（任务卡、决策记录 D-001~D-026、每轮验收 JSON）
+  data/                真实数据：factory.db（SQLite）、images/（定妆图/关键帧）、finish/（成片）、
+                       uploads/（上传素材）、thumbs/、subtitles/、publish/、deliveries/
+  start.sh             启动脚本（含单实例守卫：已有实例时会拒绝启动并给出精确 kill 命令）
+  打包说明-必读.txt     本文件
+
+二、API 密钥已全部去除（重要）
+------------------------------
+打包时对全包做了密钥清除，共处理 11 个文件：
+  · config/config.json 及各历史副本（config.json.bak.*、*.ark-*、*.backup-*）里的
+    apiKey / accessKeyId / secretAccessKey 一律置为空字符串；
+  · 文档与留痕里出现过的真实密钥（百炼 sk-ws-…、DeepSeek sk-…、方舟 AK/SK 与 UUID 形态密钥）
+    全部替换为 ***已移除-打包时去除API密钥***；
+  · 复核：以打包前的三个真实密钥值逐个全包搜索，命中 0。
+  · data/factory.db 复查：库内不含任何密钥（配置在文件里，不在库内）。
+
+**要恢复出图/写作能力，必须自己填密钥**（任选其一）：
+  1) 界面：启动后打开 设置 → LLM / 出图后端 / 视频后端 / 配音后端，填入各自的 Key 并保存；
+  2) 文件：编辑 config/config.json，把对应段的 "apiKey" 填上（如 llm.apiKey、image.generic.apiKey）。
+  未填 Key 时：LLM 可切 mock 继续跑通流程；出图可切 placeholder（本地占位 SVG，零花费）。
+
+三、核心脚本混淆加密（src/）
+----------------------------
+方式：javascript-obfuscator 5.9.0，对 src/ 下全部 64 个 .js 逐个转换，参数：
+  --compact true  --control-flow-flattening true(0.5)  --dead-code-injection false
+  --string-array true  --string-array-encoding rc4  --string-array-threshold 0.75
+  --identifier-names-generator hexadecimal  --self-defending false  --seed 20261003
+效果：函数体被控制流扁平化，字面量字符串进入 RC4 编码的字符串数组，局部标识符改名为十六进制；
+      源码业务逻辑与中文提示文案不再可直接阅读（体积 4.0MB → 3.1MB）。
+**局限（如实说明）**：
+  · 各模块 **导出的函数名**（如 `restoreCanvas`、`pickImageBodyTemplate`）保留可读 —— ESM 规范要求
+    跨文件按名字导入，改名会导致整个应用无法互联；因此「能看到有哪些能力」，但「看不到怎么实现」。
+  · 这是**混淆**（不可读、难逆向），不是密码学加密：拿到包且有足够耐心的人仍可能还原部分逻辑。
+    若需要「必须用密码才能解开」的形态，请另行要求 AES-256 加密归档（本次未生成）。
+  · web/ 前端与 tests/ 未混淆（前端随浏览器下发，混淆只增加体积；测试代码不是核心资产）。
+  · 混淆后**不含**任何明文 src 副本：打包前已删除暂存目录里的明文 src（含 src/*.bak.*）。
+
+四、怎么运行
+------------
+  1) 需要 Node.js ≥ 22（用到内置 node:sqlite、import.meta.dirname）。
+  2) 解压后进入「电影工厂」目录：
+       node server.js          # 或  ./start.sh
+  3) 浏览器打开 http://127.0.0.1:8788/  （端口可用 config/config.json 的 server.port 或环境变量 PORT 改）
+  4) 想先跑一遍自检（零花费、临时库）：
+       ./scripts/verify-all.sh          # 35 个阶段；日志默认输出到终端，建议重定向到 strategist/runs/logs/
+  5) 实例意外退出时可挂看门狗：
+       nohup ./scripts/watchdog.sh >/dev/null 2>&1 &     # 停用：touch strategist/runs/logs/.watchdog-off
+
+  · 路径含**中文或空格**均可正常运行（已验证）：打包过程中发现并修复了「用 URL.pathname 取路径导致
+    中文目录被百分号编码」的老缺陷（src/db.js 改用 fileURLToPath），因此解压到中文目录不会再出问题。
+  · data/factory.db 为 SQLite（schema_version = 14），内含打包时的全部业务数据。
+
+五、这份包做过的验证（全在「中文+空格」目录下、对**混淆后**的代码跑）
+------------------------------------------------------------------
+  tests/selfcheck.js     23 通过 / 0 失败
+  tests/test-actors.js  113 通过 / 0 失败
+  tests/test-graph.js   199 通过 / 0 失败
+  tests/test-render.js  151 通过 / 0 失败
+  tests/test-jobs.js     47 通过 / 0 失败
+  tests/test-timeline.js 189 通过 / 0 失败
+  —— 合计 722 项断言全过；另外接口冒烟 11 个端点全 200、造演员 + 占位出图任务 100% 完成。
+
+六、打包时排除/清理了哪些东西（透明说明）
+------------------------------------------
+  · data/cache/           参考图栅格化缓存（可再生的中间产物，删除只影响下次出图重新转换一次）
+  · data/*.db-shm          SQLite 共享内存文件（拷贝前已执行 wal_checkpoint(TRUNCATE)，.db 自包含）
+  · *.tmp 等临时文件；明文 src 暂存副本
+  · 其余文件（含 data/ 里所有生成图与成片、docs、strategist 留痕、config 历史备份）**原样保留**
+
+七、本次打包顺带修掉的两个「换机器/换目录就踩坑」的问题（已包含在包内）
+------------------------------------------------------------------------
+  1) **中文/空格路径**：src/db.js 原先用 `new URL(import.meta.url).pathname` 取项目根目录，
+     该 API 返回的是百分号编码路径，目录名一含中文（或空格）就会得到 `%E7%94%B5…` 这样的乱码路径，
+     导致数据目录/config/上传目录全部找不到 —— 表现为「刚解压出来跑不起来」。
+     已改用 Node 官方的 `fileURLToPath(import.meta.url)`，并在「中文+空格」目录下实测通过。
+  2) **单实例守卫过严**：start.sh 原先「只要看到同机有 node server.js 就拒绝启动」（本意是防配置漂移），
+     但排查/测试常另起一个**隔离实例**（不同 PORT + 不同 FACTORY_CONFIG），结果把主实例挡在门外，
+     日志里只有一行「拒绝启动」，很难看出原因。现在改为：**端口被占**、或另一实例**用的是同一份配置**
+     才算冲突（后者才是配置漂移的真正原因）；只是别的隔离实例在跑时会放行并打印提示。
+     （附带：看门狗也加了「连续 3 次不健康且端口没在监听 → 判定卡死并拉起」的判断。）
+
+八、关于「密钥来源」的一条重要说明（避免误会）
+----------------------------------------------
+包内确实**已经没有任何密钥**（config 里的 apiKey 全为空、文档与留痕里的真实密钥已全部替换为掩码；
+以打包前那三个真实密钥值逐个搜索全包，命中 0）。
+但程序本身有**三级回退**，所以在某些机器上它仍可能「不用填 Key 就能用」：
+  1) config/config.json 的 apiKey（**包内为空**）
+  2) 环境变量：DEEPSEEK_API_KEY / OPENAI_API_KEY / IMAGE_API_KEY
+  3) 本机 DSH 凭据文件：~/.dsh/.credentials.yaml 里的 DEEPSEEK_API_KEY（src/config.js#readDshCredential）
+     —— 开发这台机器上有该文件，所以在本机解压运行时健康检查会显示「LLM Key 已配置」；
+        换到**没有**这些凭据的机器上，就会如实显示未配置，需要在设置页填写。
+要彻底断开（例如交付给第三方）：
+  · 把 LLM 后端切 mock、出图后端切 placeholder（设置页即可，零花费也能跑通全流程）；
+  · 或确保目标机器上不存在上述环境变量与 ~/.dsh/.credentials.yaml；
+  · 或（最彻底）改 src/config.js#resolveLlmKey / resolveImageKey，去掉第 2、3 级回退（属代码改动，本次未做）。

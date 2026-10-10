@@ -1,0 +1,43 @@
+{
+  "task_id": "T-104",
+  "receiver_role": "architect",
+  "priority": "P1",
+  "phase_status": "assigned",
+  "_wave": 1,
+  "task": "字幕换行与安全区契约：中文断行规则、单行上限、CPS 与安全区联动、与现有 wrapCjk 的兼容",
+  "context": {
+    "original_request": "30 人矩阵并行开发：补齐制片自动化（定时排产、阶段失败自愈换后端）与画布/交付专业能力，全程保持 ./scripts/verify-all.sh 全绿",
+    "repo_constraints": "零依赖 Node≥22 ESM；不得引入新 npm 依赖；不改既有公开函数签名；中文错误与中文注释；测试用临时库与离线假实例"
+  },
+  "dependencies": [],
+  "write_scope": [
+    "strategist/reports/T-104-subtitle-wrap-spec.md"
+  ],
+  "acceptance_criteria": [
+    "给出断行算法（标点优先/不可行首标点/数字英文不拆）",
+    "给出与 maxCharsPerLine、平台安全区的联动公式",
+    "给出向后兼容策略（既有 18 字行为不变）"
+  ],
+  "quality_checks": [
+    "node -e \"require('node:fs').accessSync('strategist/reports/T-104-subtitle-wrap-spec.md')\""
+  ],
+  "evidence_required": [
+    "契约摘要",
+    "兼容性风险"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文注释与中文报错",
+      "只碰 write_scope 白名单"
+    ],
+    "forbidden": [
+      "引入新依赖",
+      "改白名单外文件",
+      "改既有测试期望以凑绿"
+    ]
+  },
+  "max_rework": 2,
+  "requires_backup": false,
+  "rollback_plan": "不涉及（仅新增文件）"
+}

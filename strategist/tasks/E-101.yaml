@@ -1,0 +1,44 @@
+task_id: E-101
+receiver_role: dev
+priority: P0
+phase_status: done
+delivered: 2026-09-30
+delivery_summary: 判序改 rowid（71 处 / 29 个 src 文件）＋同进程耗时改单调钟（跨进程只钳 0）＋新增 tests/test-clock-skew.js（38 条，改前在影子 src 上 9 通过/25 失败）；登记为 verify-all 第 35 阶段；E-101 落地后 35/35 阶段、3289 断言、exit=0（strategist/runs/VERIFY-35.json）
+scope_note: 任务卡 write_scope 原列 8 个 src 文件，实际扩到 29 个（理由与逐文件清单见 strategist/runs/E-101.json 的 scope_note；扩权已在 strategist/README.md 决策 D-010 追认）
+task: 把「墙钟非单调」从测试侧加固扩展到 src 侧：所有「取最新一行」改按插入序（rowid）判序，所有耗时/ETA 改用单调时钟或下限钳 0
+context:
+  original_request: 全量自检偶发失败的根因收口（FLAKE-FIX 已确证环境根因，src 侧仍未修）
+  root_cause_evidence: strategist/runs/FLAKE-FIX.json（Date.now() 与 process.hrtime.bigint() 对照采样，±12.4s 回拨/前拨）
+  replication: 独立复测 65s / 259 次采样，>50ms 跳变 19 次，最大回拨 12449ms、最大前拨 12449ms（见 strategist/runs/VERIFY-34.json 的 clock_skew_replication）
+  key_fact: SQLite 无 AUTOINCREMENT 的表，rowid = max(rowid)+1 ⇒ ORDER BY rowid DESC 恰为「插入序倒序」，与墙钟无关；现有 SQL 普遍写成 ORDER BY created_at DESC, rowid DESC（rowid 只是次键）
+dependencies: [FLAKE-FIX, VERIFY-34]
+write_scope:
+  - src/modules/render.js
+  - src/graph.js
+  - src/timeline.js
+  - src/studio.js
+  - src/qc.js
+  - src/mcp-tools.js
+  - src/decisions.js
+  - src/snapshots.js
+  - tests/test-clock-skew.js
+acceptance_criteria:
+  - 1) P0 行为性取值点全改：render.js latestShotMeta/最近成功版本/versions.isLatest、graph.js lastRun/lastRunAny/runsOf、timeline.js 画布节点最新产出、studio.js 制片取最新成片、qc.js 与 mcp-tools.js 取最新成片
+  - 2) 纯展示型列表同口径改主键（decisions/snapshots/studio 列表/mcp-tools audits·plans），改不了的注释说明原因
+  - 3) 耗时字段：跨进程/跨重启的差值下限钳 0 并注明受墙钟影响；进程内耗时改用单调时钟；写库/报告/接口的数字永不为负
+  - 4) 新增 tests/test-clock-skew.js：回拨注入下「最新行」仍取后插入者｜未来时间戳旧行不顶序｜删最新行后再插入仍取新行｜负耗时被钳住｜DAG lastRun 回拨场景不取旧 run
+  - 5) 回归全绿且断言数不降：render 105 / timeline 183 / graph 199 / mcp 284 / studio 148 / qc 47 / jobs 47 / deliver 74 / vision-qc 55
+quality_checks:
+  - node --check 每个改动文件
+  - node tests/test-clock-skew.js
+  - 跑前跑后比对 data/factory.db 的 app_config['usage:monthly'] 必须逐字节一致
+evidence_required:
+  - 改动文件:行号清单与 diff 摘要
+  - test-clock-skew.js 在「改前」的失败输出（证明该测试真的抓得住墙钟问题）
+  - 各套件原始结果行与用量台账前后原文
+constraints:
+  must: [只改 src/** 与 tests/test-clock-skew.js, 零付费（占位后端/假服务端/临时库）, 改前备份 .bak.clockskew]
+  forbidden: [改 docs/** 与 README.md（D-101 线在改）, 改 config/**, 改 scripts/verify-all.sh, 重启 8788, pkill, 跑全量自检]
+max_rework: 2
+requires_backup: false
+rollback_plan: 各文件 cp -a 成 .bak.clockskew，异常即覆盖回滚

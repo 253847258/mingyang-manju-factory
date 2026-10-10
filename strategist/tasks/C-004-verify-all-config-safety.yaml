@@ -1,0 +1,112 @@
+{
+  "task_id": "C-004",
+  "receiver_role": "ops",
+  "priority": "P0",
+  "phase_status": "assigned",
+  "_wave": 2,
+  "_round": 2,
+  "round_p0_goal": "第 2 轮 P0 · 治理 RK-L6-06（中低危，涉及用户真实数据文件）：全量自检的阶段 23（tests/ui-simulate.py）会经设置页「保存出图配置」按钮把用户真实的 config/config.json 整体重写（前端 → PUT /api/settings → src/routes/meta.js:168 saveConfig → src/config.js:193 fs.writeFileSync）。本卡让「跑一次全量自检」对 config/config.json 零字节副作用，并把该副作用写进运维须知。",
+  "task": "让 tests/ui-simulate.py 对 config/config.json 零改写（字节快照 + finally 逐字节还原，或改掉会写盘的保存点击），补 ≥3 条断言，并在 strategist/reports/T-108-ops-plan.md 追加「全量自检的已知副作用与处置」运维须知",
+  "context": {
+    "original_request": "第 2 轮 P0 拆解：把 L6 验收留下的中低危风险定点治理，且不降低任何既有断言计数、不重启 8788。",
+    "repo_constraints": "零依赖 Node≥22 ESM（Python 侧只用标准库）；禁止 npm 依赖；禁止重启 8788（PID 2679524 正在服务 GUI）；禁止改既有测试期望凑绿；中文报错与中文注释；改既有文件前先 cp <file>.bak；不得为了验证而修改真实 config/config.json 的语义值。",
+    "upstream_evidence": [
+      "strategist/reports/L6-verify.md:430（RK-L6-06 完整事实：mtime 2026-09-29 10:30:58、代码路径 tests/ui-simulate.py:1423 → src/routes/meta.js:168 → src/config.js:193、建议处置①②③）",
+      "strategist/reports/L6-verify.md:421（§6 表头：本轮只记录、不修改）",
+      "strategist/reports/README.md:76（收口报告 §8 第 2 条：建议跑前留 md5 基线）",
+      "tests/ui-simulate.py:1419-1426（现有注释写「不保存这次向导改动」，但点的是会写盘的「保存出图配置」按钮——注释与行为不一致）",
+      "tests/ui-simulate.py:1427-1435（事后用 API PUT 还原 image.backend 与 image.generic.url，且失败只 warn）",
+      "scripts/verify-all.sh:50-57（阶段 23 用 $BASE = 真实 8788 调 tests/ui-simulate.py:52；阶段 24 才是独立临时实例:57）",
+      "strategist/reports/T-106-test-plan.md §7.5（口径：不为了跑测试而改 config/config.json）"
+    ]
+  },
+  "dependencies": [
+    "C-001"
+  ],
+  "write_scope": [
+    "tests/ui-simulate.py",
+    "tests/ui-simulate.py.bak",
+    "strategist/reports/T-108-ops-plan.md",
+    "strategist/reports/T-108-ops-plan.md.bak"
+  ],
+  "interface_contract": [
+    "不变量（本卡唯一硬目标）：一次完整跑 python3 tests/ui-simulate.py <base> 之后，config/config.json 的 md5 与跑前逐字节一致。",
+    "配置文件路径解析：pathlib.Path(os.environ.get('FACTORY_CONFIG') or (ROOT / 'config' / 'config.json'))，其中 ROOT = 仓库根（pathlib.Path(__file__).resolve().parent.parent）；文件不存在时必须 FAIL 并给中文原因，禁止静默跳过。",
+    "实现手段（二选一，必须在卡的 evidence 里写明选了哪一个与理由）：A. 字节快照兜底 —— 模块入口读取原始字节与 md5，设置页段落用 try/finally，finally 中比对 md5，不一致则用原始字节覆盖回写并记录一条「已还原」证据；B. 不触碰写盘路径 —— 设置页段落改为「读原值 → 页面操作后断言回填 → 不点击会写盘的『保存出图配置』按钮」，保留既有 API 还原路径。推荐 A，因为它对已知与未来新增的写盘路径都形成兜底。",
+    "注释与行为一致性：tests/ui-simulate.py:1419-1426 的注释不得再出现「不保存」却点击保存按钮的自相矛盾（选 A 时注释写明「点击会写盘，已由字节快照兜底还原」）。",
+    "新增断言 ≥3 条（复用现有 ok()/warn() 助手，禁止新增自定义结算函数）：① 启动时成功读取 config/config.json 并算出 md5（含路径证据）；② 设置页段落结束时 md5 与启动快照一致；③ 脚本收尾（main 返回前）md5 仍与启动快照一致。",
+    "断言只增不减：阶段 23 计数基线 172（tests/ui-simulate.py:1476 的输出行与 README.md:11 口径一致），跑完后必须 ≥172 且失败 0；不得删除、改写既有断言的名称与判据。",
+    "不得改：BASE 解析顺序（argv[1] → env BASE → http://127.0.0.1:8788）、PROBLEMS/WARN 清单输出、各模块的既有交互与断言、脚本头部的安全约束说明。",
+    "运维须知追加：strategist/reports/T-108-ops-plan.md 新增一小节（标题以「全量自检的已知副作用与处置」开头，位置在 §5 观测点之后、§10 本卡未做之前），必须含五要素：① 阶段 21 会写 docs/全模块功能模拟测试报告.md|.json（设计内产物）；② 阶段 23 的历史行为（RK-L6-06 原文事实：mtime 2026-09-29 10:30:58、代码路径链）与本卡修复后的行为（零字节副作用）；③ 跑前基线命令 md5sum config/config.json；④ 跑后比对命令与不一致时的还原命令（cp <file>.bak <file> 或用快照字节覆盖）；⑤ 红线一句：全量自检前必须留基线，禁止在未知状态下跑，禁止用全量自检去「顺手改」用户配置。",
+    "越界声明：scripts/verify-all.sh（阶段 23 的调用行）不在本卡白名单；若确需把阶段 23 指向独立临时实例，必须由总军师另开卡，本卡不得越界修改。"
+  ],
+  "implementation_steps": [
+    "0) cp tests/ui-simulate.py tests/ui-simulate.py.bak；cp strategist/reports/T-108-ops-plan.md strategist/reports/T-108-ops-plan.md.bak；记录两个文件 md5sum。",
+    "1) 跑前基线：md5sum config/config.json —— 把原始输出存进 evidence（这一条本身就是 L6 建议处置①所缺的证据）。",
+    "2) 复现缺陷（单跑阶段 23，禁止重启 8788）：LD_LIBRARY_PATH=/home/linsheng/pwlibs/extract/usr/lib/x86_64-linux-gnu python3 tests/ui-simulate.py http://127.0.0.1:8788; echo \"exit=$?\" —— 记录计数行原文、退出码，以及跑后 md5sum config/config.json（与第 1 步对比，证明副作用真实存在；若本次未复现，如实记录并给出原因）。",
+    "3) 按 interface_contract 第 3 条实现所选手段（推荐 A）：模块级快照 + 设置页段落 try/finally 还原 + 收尾复核。",
+    "4) 追加 3 条断言（md5 启动可读 / 段落结束一致 / 脚本收尾一致），复用 ok() 助手；断言文案用中文并带证据（路径与 md5 前 8 位）。",
+    "5) 再单跑一次同一命令，证明：跑后计数 ≥172、失败 0、exit=0，且跑后 md5sum config/config.json 与跑前逐字相同。",
+    "6) 追加 T-108-ops-plan.md 运维须知小节（五要素齐全），并在小节内标注事实来源为 strategist/reports/L6-verify.md:430。",
+    "7) 自检：python3 -m py_compile tests/ui-simulate.py；grep -n 'md5' tests/ui-simulate.py；diff 只允许新增行。"
+  ],
+  "acceptance_criteria": [
+    "单跑 python3 tests/ui-simulate.py http://127.0.0.1:8788 前后，config/config.json 的 md5 逐字节一致（跑前/跑后两条 md5sum 原始输出都在 evidence 里）",
+    "阶段 23 断言计数 ≥172 且失败 0、exit=0（不得靠删改既有断言凑绿）",
+    "新增 ≥3 条断言可判定：配置文件读取成功、段落结束 md5 一致、脚本收尾 md5 一致；配置文件缺失时必须 FAIL 而非静默通过",
+    "注释与行为一致：tests/ui-simulate.py:1419-1426 附近不再出现「不保存……保存」的自相矛盾表述",
+    "T-108-ops-plan.md 新增「全量自检的已知副作用与处置」小节，五要素齐全且含跑前基线命令与还原命令",
+    "零源码改动（src/**、web/** 未触碰）；未重启 8788（进程 PID 与跑前一致）；未改变 config/config.json 的语义值",
+    "python3 -m py_compile tests/ui-simulate.py exit=0；未引入任何第三方 Python 依赖"
+  ],
+  "quality_checks": [
+    "python3 -m py_compile tests/ui-simulate.py",
+    "md5sum config/config.json",
+    "LD_LIBRARY_PATH=/home/linsheng/pwlibs/extract/usr/lib/x86_64-linux-gnu python3 tests/ui-simulate.py http://127.0.0.1:8788; echo \"exit=$?\"",
+    "grep -n 'config.json' tests/ui-simulate.py",
+    "grep -n '全量自检的已知副作用与处置' strategist/reports/T-108-ops-plan.md",
+    "diff tests/ui-simulate.py.bak tests/ui-simulate.py | grep -c '^<'",
+    "ps -o pid,lstart,etime,cmd -p $(pgrep -f 'node server.js' | head -1)"
+  ],
+  "evidence_required": [
+    "修改文件清单（含 md5 与行数）",
+    "跑前/跑后 config/config.json 的 md5sum 原始输出（两条必须逐字相同）",
+    "单跑阶段 23 的计数行原文与退出码（改前复现 + 改后验证各一次）",
+    "所选实现手段（A 或 B）与理由",
+    "T-108 新增小节原文与插入位置",
+    "既有断言零删改的 diff 计数（'^<' 行数必须为 0）",
+    "未解决风险"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文注释与中文报错",
+      "只碰 write_scope 白名单",
+      "改既有文件前先 cp <file>.bak",
+      "跑全量自检前先留 config/config.json 的 md5 基线"
+    ],
+    "forbidden": [
+      "引入新依赖",
+      "改白名单外文件",
+      "改既有测试期望以凑绿",
+      "重启 8788",
+      "改 config/config.json 的语义值（只允许「原值 → 原值」的字节还原）",
+      "改 scripts/verify-all.sh"
+    ]
+  },
+  "do_not_touch": [
+    "scripts/verify-all.sh（阶段 23/24 的调用方式由集成线负责）",
+    "src/** 与 web/**",
+    "tests/canvas-select.test.mjs 与 tests/test-schedules.js（分属 C-002/C-003）",
+    "config/config.json（只读基线，不得改语义）",
+    "data/",
+    "strategist/reports/L6-verify.md（只读引用）"
+  ],
+  "handoff_to": [
+    "C-005（独立验收：跑一次 bash scripts/verify-all.sh 并核对 config/config.json 的跑前跑后 md5；核对阶段 23 计数 ≥172）",
+    "总军师（若要把阶段 23 改为独立临时实例，由总军师另开集成卡）"
+  ],
+  "max_rework": 2,
+  "requires_backup": true,
+  "rollback_plan": "改动前 cp tests/ui-simulate.py tests/ui-simulate.py.bak 与 cp strategist/reports/T-108-ops-plan.md strategist/reports/T-108-ops-plan.md.bak；失败时用 .bak 覆盖还原两个文件，并核对 config/config.json 与跑前 md5 一致（不一致则用该文件在步骤 1 记录的基线或 .bak 快照还原）"
+}

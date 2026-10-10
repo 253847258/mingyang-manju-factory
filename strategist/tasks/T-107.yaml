@@ -1,0 +1,45 @@
+{
+  "task_id": "T-107",
+  "receiver_role": "security",
+  "priority": "P1",
+  "phase_status": "assigned",
+  "_wave": 1,
+  "task": "安全风险清单：排产的自动执行面、自愈换后端的越权风险、批处理删除的误伤面、路径与输入校验",
+  "context": {
+    "original_request": "30 人矩阵并行开发：补齐制片自动化（定时排产、阶段失败自愈换后端）与画布/交付专业能力，全程保持 ./scripts/verify-all.sh 全绿",
+    "repo_constraints": "零依赖 Node≥22 ESM；不得引入新 npm 依赖；不改既有公开函数签名；中文错误与中文注释；测试用临时库与离线假实例"
+  },
+  "dependencies": [
+    "T-101",
+    "T-102",
+    "T-103"
+  ],
+  "write_scope": [
+    "strategist/reports/T-107-security-risks.md"
+  ],
+  "acceptance_criteria": [
+    "每条风险给出文件/接口 + 触发条件 + 影响 + 最小修复建议",
+    "高危项必须给出可验证的阻断断言"
+  ],
+  "quality_checks": [
+    "node -e \"require('node:fs').accessSync('strategist/reports/T-107-security-risks.md')\""
+  ],
+  "evidence_required": [
+    "风险表（含严重度）"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文注释与中文报错",
+      "只碰 write_scope 白名单"
+    ],
+    "forbidden": [
+      "引入新依赖",
+      "改白名单外文件",
+      "改既有测试期望以凑绿"
+    ]
+  },
+  "max_rework": 2,
+  "requires_backup": false,
+  "rollback_plan": "不涉及（仅新增文件）"
+}

@@ -1,0 +1,54 @@
+# 依赖与构建产物
+node_modules/
+*.log
+
+# 自带 ffmpeg 等二进制分发物（体积大，随交付压缩包提供，不入库）
+bin/
+
+# 运行时数据：作品/交付包/数据库全部不入库（磁盘请自行保留，勿手删）
+# 详见 docs/开发评估与痛点清单.md P0-4
+data/
+
+# 本地配置（含 API Key，切勿提交）
+config/config.json
+# 运行期恢复快照：server.js / scripts/restore-backends.js / check-backends.js /
+# enable-offline-png-config.mjs 会读取这几个文件，保留在磁盘但不入库
+config/config.json.before-paid-gate
+config/config.json.bak.ark
+config/config.json.before-offline-png
+config/config.json.*
+
+# 历史副本 / 备份（本次评估 P0-1：统一搬到 _archive/ 并永久不入库）
+_archive/
+**/*.bak
+**/*.bak.*
+**/*.bak2
+**/*.before-*
+**/*.after-*
+**/*.w[0-9].bak
+**/*.w[0-9][0-9].bak
+**/*.w[0-9]rework.bak
+**/*.d[0-9][0-9][0-9]
+**/*.d[0-9][0-9][0-9][a-z]
+**/*.d[0-9][0-9][0-9].*
+**/*.v[0-9][0-9][0-9]
+**/*.c[0-9][0-9][0-9]
+**/*.i[0-9][0-9][0-9]
+**/*.m[0-9][0-9][0-9]
+**/*.h[0-9][0-9][0-9]
+**/*.g[0-9][0-9][0-9]
+**/*.refimg
+**/*.p0auth
+**/*.matrix
+
+# Strategist 运行日志：含掩码 Key / KeyId 片段与探测记录，属"凭据相邻"数据，不入库
+# （用 scripts/check-secrets.mjs --all 可审计到；默认提交前检查不扫它）
+strategist/runs/
+
+# 压缩包与临时文件
+*.zip
+.tmp-*
+
+# 系统文件
+.DS_Store
+Thumbs.db

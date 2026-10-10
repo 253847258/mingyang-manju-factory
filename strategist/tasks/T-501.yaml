@@ -1,0 +1,45 @@
+{
+  "task_id": "T-501",
+  "receiver_role": "test",
+  "priority": "P0",
+  "phase_status": "assigned",
+  "_wave": 6,
+  "task": "独立验收 排产线（src/schedules.js + tests/test-schedules.js + 路由）：只依据证据判定 PASS/FAIL/BLOCKED（不得自评）",
+  "context": {
+    "original_request": "30 人矩阵并行开发：补齐制片自动化（定时排产、阶段失败自愈换后端）与画布/交付专业能力，全程保持 ./scripts/verify-all.sh 全绿",
+    "repo_constraints": "零依赖 Node≥22 ESM；不得引入新 npm 依赖；不改既有公开函数签名；中文错误与中文注释；测试用临时库与离线假实例"
+  },
+  "dependencies": [
+    "T-402"
+  ],
+  "write_scope": [
+    "src/schedules.js,tests/test-schedules.js,src/routes/schedules.js"
+  ],
+  "acceptance_criteria": [
+    "结论只能是 PASS/FAIL/BLOCKED",
+    "FAIL 必须给文件:行号 + 最小复现命令 + 原始输出",
+    "红队线必须尝试至少 5 个证伪动作并如实记录（含未复现的）"
+  ],
+  "quality_checks": [
+    "node tests/<对应测试>.js",
+    "node --check <对应源码>"
+  ],
+  "evidence_required": [
+    "判定",
+    "复现证据（命令+原始输出）",
+    "未解决风险"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文注释与中文报错",
+      "只碰 write_scope 白名单"
+    ],
+    "forbidden": [
+      "修改任何源码或测试（只读验收）"
+    ]
+  },
+  "max_rework": 2,
+  "requires_backup": false,
+  "rollback_plan": "不涉及（仅新增文件）"
+}

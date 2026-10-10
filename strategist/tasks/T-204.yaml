@@ -1,0 +1,46 @@
+{
+  "task_id": "T-204",
+  "receiver_role": "test",
+  "priority": "P1",
+  "phase_status": "assigned",
+  "_wave": 2,
+  "task": "实现 tests/test-selfheal.js：注入假后端，覆盖可自愈/不可自愈/降级链耗尽/结果字段完整性",
+  "context": {
+    "original_request": "30 人矩阵并行开发：补齐制片自动化（定时排产、阶段失败自愈换后端）与画布/交付专业能力，全程保持 ./scripts/verify-all.sh 全绿",
+    "repo_constraints": "零依赖 Node≥22 ESM；不得引入新 npm 依赖；不改既有公开函数签名；中文错误与中文注释；测试用临时库与离线假实例"
+  },
+  "dependencies": [
+    "T-203"
+  ],
+  "write_scope": [
+    "tests/test-selfheal.js"
+  ],
+  "acceptance_criteria": [
+    "≥10 条断言",
+    "不可自愈的错误必须原样抛出（不静默吞）",
+    "降级链耗尽时给中文说明与建议",
+    "成功自愈时结果里明确写清换了什么"
+  ],
+  "quality_checks": [
+    "node tests/test-selfheal.js"
+  ],
+  "evidence_required": [
+    "用例数",
+    "原始输出尾部"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文注释与中文报错",
+      "只碰 write_scope 白名单"
+    ],
+    "forbidden": [
+      "引入新依赖",
+      "改白名单外文件",
+      "改既有测试期望以凑绿"
+    ]
+  },
+  "max_rework": 2,
+  "requires_backup": false,
+  "rollback_plan": "不涉及（仅新增文件）"
+}

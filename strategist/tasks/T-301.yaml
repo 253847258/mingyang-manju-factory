@@ -1,0 +1,47 @@
+{
+  "task_id": "T-301",
+  "receiver_role": "docs",
+  "priority": "P2",
+  "phase_status": "assigned",
+  "_wave": 3,
+  "task": "写 docs/排产与自愈使用手册.md（新文件）：面向使用者的操作手册草稿，引用已冻结的实现契约",
+  "context": {
+    "original_request": "30 人矩阵并行开发：补齐制片自动化（定时排产、阶段失败自愈换后端）与画布/交付专业能力，全程保持 ./scripts/verify-all.sh 全绿",
+    "repo_constraints": "零依赖 Node≥22 ESM；不得引入新 npm 依赖；不改既有公开函数签名；中文错误与中文注释；测试用临时库与离线假实例"
+  },
+  "dependencies": [
+    "T-201",
+    "T-203",
+    "T-106"
+  ],
+  "write_scope": [
+    "docs/排产与自愈使用手册.md"
+  ],
+  "acceptance_criteria": [
+    "含：怎么建排产、怎么看待自愈降级、怎么恢复暂停队列、常见问题排查",
+    "必须与实现导出的函数/接口名一致（不得凭想象写 API）",
+    "不写具体测试计数（由集成线统一维护）"
+  ],
+  "quality_checks": [
+    "node -e \"require('node:fs').accessSync('docs/排产与自愈使用手册.md')\""
+  ],
+  "evidence_required": [
+    "文件清单",
+    "与实现核对过的接口名清单"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文注释与中文报错",
+      "只碰 write_scope 白名单"
+    ],
+    "forbidden": [
+      "引入新依赖",
+      "改白名单外文件",
+      "改既有测试期望以凑绿"
+    ]
+  },
+  "max_rework": 2,
+  "requires_backup": false,
+  "rollback_plan": "不涉及（仅新增文件）"
+}

@@ -1,0 +1,32 @@
+{
+  "id": "produce-cinematic-21x9",
+  "name": "电影感 21:9 长片（外部技能示例）",
+  "desc": "示例：放在 skills/ 下的外部技能文件，被引擎自动加载；同 id 会覆盖内置技能",
+  "format": "manju",
+  "ratio": "21:9",
+  "episodes": 2,
+  "episodeSeconds": 240,
+  "castSize": 8,
+  "stages": [
+    "brief",
+    "cast",
+    "novel",
+    "script",
+    "canvas",
+    "keyframe",
+    "video",
+    "finish",
+    "qc",
+    "deliver"
+  ],
+  "params": {
+    "chaptersToWrite": 2
+  },
+  "retryKinds": [
+    "rate",
+    "server",
+    "network",
+    "timeout"
+  ],
+  "notes": "长片镜头更贵：timeout 也允许自动重试一次"
+}

@@ -1,0 +1,38 @@
+task_id: D-101
+receiver_role: docs
+priority: P1
+phase_status: assigned
+task: 把本会话新增能力与已知限制写入用户文档，并用全量自检真实数字校准计数
+context:
+  original_request: 文档同步（P0 四项修复 / Ark 结论 / 视觉质检 / 视频尾帧 / 已知限制 / 计数校准）
+  repo_constraints: 中文；每条技术断言必须回代码或 runs 报告取证；不得出现任何密钥明文
+dependencies: [FLAKE-FIX, SELFHEAL-MODEL, RETRY-MODELWORDS, CONSISTENCY-FIX, STAGES-5]
+write_scope:
+  - docs/真实模型接入与按角色配置.md
+  - docs/使用手册.md
+  - docs/排产与自愈使用手册.md
+  - README.md
+acceptance_criteria:
+  - 1) P0 四项修复写入：quota/model 不可重试并给中文告知（src/retry.js）｜start.sh 单实例守卫（有实例即拒绝启动、给精确 kill 命令、--force 需风险确认）｜authHeader/authPrefix 三处 generic 可配且默认请求头不变（src/config.js + src/routes/meta.js + web/views/settings.js）｜可信回滚点与 node scripts/check-config-backups.js 判定口径
+  - 2) Ark 三条凭据路线结论：1016****e8c0 有效但 429 SetLimitExceeded（账号 2121359158 需关「安全体验模式」/提额）；0m78****Mu7r 信封型 401 无效；AK/SK 属账号 2130449616（欠费）且数据面不收 AK/SK。必须写明「鉴权通过（GET /models 200）≠ 可出图」
+  - 3) 视觉质检用法：src/vision-qc.js 导出、qcEpisode 新增 consistency-vision（无后端=info 明示「使用代理指标」、注入 runVision 且可用=warn/ok）、离群判定 ≤2 张绝对阈值 / ≥3 张「阈值 ∧ 中位数-3×MAD」、aHash 代理指标的边界（不做人脸识别）
+  - 4) 视频尾帧：/api/render/videos 与 test-video 的 lastImage/lastImageByShot 语义、未设置=只首帧驱动、非法值中文 400 零请求、runVideos 对缺失尾帧该镜失败并落中文错误、UI 入口「⌛ 设置尾帧(N)」
+  - 5) 已知限制（逐条如实写；括号里是已核实的最新事实，写前必须回代码复核一遍）：尾帧选择仅存会话不落库｜像素级首尾帧自检仅在画布 DAG｜尾帧不参与跳过判据（换尾帧需开重做覆盖）｜云端后端需模板带 {{lastImage}}｜Gemini 多模态协议需另写分支｜self-heal 的 model 档案与 retry 的 model 关键词**已支持**（src/retry.js 规则位置在 quota 之后、auth/server 之前，刻意不加裸 not found / 裸 invalid）｜**视频侧与配音侧鉴权头设置页已有入口**（web/views/settings.js 三处 authHeader/authPrefix）｜**verify-all.sh 已登记 31/34 视觉质检**（本轮 STAGES-5 新登记）
+  - 6) 计数校准：README 第 11 行区间与第 227 行附近、docs/使用手册.md 第 25 行、docs/排产与自愈使用手册.md 的既有「14 项」表述；**阶段数固定为 34**（scripts/verify-all.sh 现有 34 个 run 阶段：25 原有 + 第 4 波 26~30 + 第 5 波 31~34），断言总数必须取自**本轮 FLAKE-FIX 交付后 verify-all 的真实输出**（不得沿用旧值、不得自行相加；单阶段断言数会随代码演进，建议写成「以 `./scripts/verify-all.sh` 输出为准」）
+  - 6b) 已核实的文档自相矛盾（必须改对，证据 `grep -cE '^\s*ok "' scripts/accept-schedules.sh` → **14**）：`docs/使用手册.md:831` 与 `docs/真实模型接入与按角色配置.md:624` 都写着「实际有 15 个 ok() 断言」，而脚本里只有 **14** 条 `ok "…"`（:34/:35/:40/:41/:42/:43/:44/:53/:67/:70/:71/:72/:73/:77），且不存在「两行都在验证排产接口可用」的重复 —— `docs/排产与自愈使用手册.md` 的「14 项」才是对的。两处都改为 14 项，并删掉「以代码为准=15」的错误结论
+  - 7) 参考生图预设口径（CONSISTENCY-FIX）：设置页出图预设第 4 项已改为双模板 —— bodyTemplate=文生图（不含 image 键）、refBodyTemplate=图生图（含 image/strength），与 src/image.js#pickImageBodyTemplate 同口径；老配置里已写进 bodyTemplate 的 i2i 模板需重套预设或手挪（写入已知限制）
+  - 8) 视频响应字段兜底（CONSISTENCY-FIX）：src/video.js 任务号探测 4→19 条有序候选（既有 4 条顺序不变：data.task_id → task_id → data.id → id），状态字段与成片地址同口径兜底（output.task_status / output.video_url 等，走兜底会在 notes 留痕）；完全缺失时中文报错**列出全部已尝试路径**并点名各厂商口径（万相 output.task_id / Ark id / MiniMax task_id）；同步型响应（返回即成片）仍不轮询
+quality_checks:
+  - node scripts/check-config-backups.js   # 注意：是 node 不是 bash（bash 跑 .js 会 exit=2；原任务卡写法有误，D-101 执行时已实跑纠正）
+  - node scripts/check-backends.js
+  - grep -c "consistency-vision" docs/真实模型接入与按角色配置.md
+evidence_required:
+  - 修改文件清单与新增章节标题
+  - 引用的文件:行号清单（≥12 条）
+  - 计数校准所依据的 verify-all 原始输出片段
+constraints:
+  must: [只改 write_scope 四个文件, 不写密钥明文, 计数用实测值]
+  forbidden: [改 src/** 与 tests/**, 改 config/**, 编造接口名, 沿用过期计数]
+max_rework: 2
+requires_backup: false
+rollback_plan: 四份文档各自 cp .bak 后修改，异常即覆盖回滚

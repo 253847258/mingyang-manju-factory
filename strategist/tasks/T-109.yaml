@@ -1,0 +1,42 @@
+{
+  "task_id": "T-109",
+  "receiver_role": "docs",
+  "priority": "P2",
+  "phase_status": "assigned",
+  "_wave": 1,
+  "task": "文档影响面盘点：需要新增/修改的文档清单与章节定位（不写正文，只给清单与落点）",
+  "context": {
+    "original_request": "30 人矩阵并行开发：补齐制片自动化（定时排产、阶段失败自愈换后端）与画布/交付专业能力，全程保持 ./scripts/verify-all.sh 全绿",
+    "repo_constraints": "零依赖 Node≥22 ESM；不得引入新 npm 依赖；不改既有公开函数签名；中文错误与中文注释；测试用临时库与离线假实例"
+  },
+  "dependencies": [],
+  "write_scope": [
+    "strategist/reports/T-109-docs-plan.md"
+  ],
+  "acceptance_criteria": [
+    "逐份列出文件与章节标题",
+    "标注哪些计数行需要同步（README 第 11/227 行等）",
+    "给出建议写作顺序（实现冻结后再写）"
+  ],
+  "quality_checks": [
+    "node -e \"require('node:fs').accessSync('strategist/reports/T-109-docs-plan.md')\""
+  ],
+  "evidence_required": [
+    "清单摘要"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文注释与中文报错",
+      "只碰 write_scope 白名单"
+    ],
+    "forbidden": [
+      "引入新依赖",
+      "改白名单外文件",
+      "改既有测试期望以凑绿"
+    ]
+  },
+  "max_rework": 2,
+  "requires_backup": false,
+  "rollback_plan": "不涉及（仅新增文件）"
+}

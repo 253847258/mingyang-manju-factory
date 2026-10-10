@@ -1,0 +1,44 @@
+{
+  "task_id": "T-102",
+  "receiver_role": "architect",
+  "priority": "P1",
+  "phase_status": "assigned",
+  "_wave": 1,
+  "task": "阶段失败自愈换后端契约：错误分类→降级链→重试一次→结果告知，禁止静默换后端",
+  "context": {
+    "original_request": "30 人矩阵并行开发：补齐制片自动化（定时排产、阶段失败自愈换后端）与画布/交付专业能力，全程保持 ./scripts/verify-all.sh 全绿",
+    "repo_constraints": "零依赖 Node≥22 ESM；不得引入新 npm 依赖；不改既有公开函数签名；中文错误与中文注释；测试用临时库与离线假实例"
+  },
+  "dependencies": [],
+  "write_scope": [
+    "strategist/reports/T-102-selfheal-spec.md"
+  ],
+  "acceptance_criteria": [
+    "给出可自愈/不可自愈的错误分类表",
+    "给出降级链（comfyui-h3→generic-http→placeholder）与判定依据",
+    "明确「必须告知用户降级了什么」的字段",
+    "给出幂等与重试上限"
+  ],
+  "quality_checks": [
+    "node -e \"require('node:fs').accessSync('strategist/reports/T-102-selfheal-spec.md')\""
+  ],
+  "evidence_required": [
+    "契约摘要",
+    "风险与不适用场景"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文注释与中文报错",
+      "只碰 write_scope 白名单"
+    ],
+    "forbidden": [
+      "引入新依赖",
+      "改白名单外文件",
+      "改既有测试期望以凑绿"
+    ]
+  },
+  "max_rework": 2,
+  "requires_backup": false,
+  "rollback_plan": "不涉及（仅新增文件）"
+}

@@ -1,0 +1,114 @@
+{
+  "task_id": "C-005",
+  "receiver_role": "test",
+  "priority": "P0",
+  "phase_status": "assigned",
+  "_wave": 3,
+  "_round": 2,
+  "round_p0_goal": "第 2 轮 P0 · 独立验收：对 C-002/C-003/C-004 的交付只依据实跑证据判 PASS/FAIL/BLOCKED，并证明本轮没有用「改既有测试期望」「少跑阶段」「虚报计数」的方式凑绿；同时把 README 的阶段计数台账核到真值。",
+  "task": "独立验收 C-002/C-003/C-004（含红队 ≥5 条主动证伪）+ 一次全量自检回归取证 + README.md:11 计数台账核对；结论不得采信实现方自评",
+  "context": {
+    "original_request": "第 2 轮 P0 收口前的独立验收：验收角色与实现角色必须不同，结论只有 PASS/FAIL/BLOCKED。",
+    "repo_constraints": "零依赖 Node≥22 ESM；禁止 npm 依赖；禁止重启 8788（PID 2679524 正在服务 GUI，验收前后 PID 与 STARTED 必须一致）；禁止修改任何源码或测试（只读验收）；禁止改既有测试期望凑绿；中文报告；破坏性验证一律在 mkdtemp 临时库或 /tmp 脚本内完成，不碰 data/factory.db 与 config/config.json 的语义值。",
+    "upstream_evidence": [
+      "strategist/tasks/C-002-canvas-id-fail-closed.yaml（被验收对象的 acceptance_criteria）",
+      "strategist/tasks/C-003-tick-round-cap.yaml（被验收对象的 acceptance_criteria）",
+      "strategist/tasks/C-004-verify-all-config-safety.yaml（被验收对象的 acceptance_criteria）",
+      "strategist/tasks/C-001-round2-contract.yaml（契约口径：错误码、字段名、判定顺序、计数基线）",
+      "strategist/reports/L6-verify.md:421-433（第 1 轮验收方法与红线自查口径，本轮沿用）",
+      "strategist/reports/L6-verify.md:425-430（RK-L6-01/02/03/04/05/06 待复验项）",
+      "strategist/reports/README.md:56-79（第 2 次运行收口：§六 波次结果 / §七 硬证据 / §八 残余风险 73-79，作为本轮对照基线）"
+    ]
+  },
+  "dependencies": [
+    "C-002",
+    "C-003",
+    "C-004"
+  ],
+  "write_scope": [
+    "strategist/reports/C-005-verify.md",
+    "README.md",
+    "README.md.bak"
+  ],
+  "interface_contract": [
+    "验收报告结构固定为 8 节：0 结论速览（逐卡 PASS/FAIL/BLOCKED + 一句话依据）/ 1 五个测试套件真跑原始证据 / 2 verify-all.sh 一次真跑 / 3 红队证伪（≥5 条，含未复现的）/ 4 本轮 P0 四项逐条对照 / 5 README 计数台账核对 / 6 风险与残留 / 7 复现清单（一条命令一条结论）/ 8 红线自查。",
+    "判定只允许三档：PASS / FAIL / BLOCKED；FAIL 必须给 文件:行号 + 最小复现命令 + 原始输出；BLOCKED 必须给缺失条件。",
+    "计数台账口径：阶段数与逐阶段断言数一律取「一次真跑」的完整日志解析结果；前 25 阶段合计必须等于 2098（第 1 轮基线，守恒即证明既有断言未被删改）；30 阶段合计必须等于 README.md:11 声明的数值，不一致时按实跑值更新 README.md:11 并保留改前/改后两行原文。",
+    "本轮预期基线（供对账，不得当结论抄）：tests/test-schedules.js ≥124、tests/canvas-select.test.mjs ≥228、tests/test-selfheal.js =101、tests/test-subtitle-wrap.js =67、tests/canvas-perf.test.mjs =89；阶段 23（ui-simulate）≥172；全量 30 阶段合计 ≥2693。",
+    "README.md 只允许改第 11 行的计数台账（阶段数与逐阶段断言数、总数）；禁止改其他行来「对齐」数字；禁止通过修改任何测试文件让数字吻合。",
+    "只读验收：本卡不得修改 src/**、web/**、tests/**、scripts/**；发现实现缺陷一律记为 FAIL 或风险，由总军师另开返工卡。"
+  ],
+  "implementation_steps": [
+    "0) cp README.md README.md.bak；记录验收前现场：md5sum config/config.json、ps -o pid,lstart,etime,cmd -p $(pgrep -f 'node server.js' | head -1)、md5sum web/lib/canvas-select.js src/schedules.js tests/canvas-select.test.mjs tests/test-schedules.js tests/ui-simulate.py（作为「实现方交付物指纹」，验收结束时再次核对以证明本卡未改它们）。",
+    "1) 五个套件真跑（不接管道、不接或运算，原样取退出码）：for t in test-schedules.js test-selfheal.js canvas-select.test.mjs test-subtitle-wrap.js canvas-perf.test.mjs; do node \"tests/$t\"; echo \"exit=$?\"; done —— 逐套件的计数行原文与退出码入报告；与第 4 条预期基线对比，低于基线的套件即 FAIL 证据。",
+    "2) 独立重跑红队脚本（不接受实现方转述）：node /tmp/l6/rt/rt3-batch-maincanvas.mjs（C-002 专项）与 node /tmp/l6/rt/rt5-readme-counts.mjs（计数专项）；若脚本缺失或已被改坏，用 mkdtemp 临时库自写等价最小复现（脚本只落 /tmp）。",
+    "3) 一次全量真跑（本轮只跑一次）：bash scripts/verify-all.sh; echo \"exit=$?\" —— 保存完整日志到 /tmp/c005/verify-all.log，解析出 30 个阶段头与计数行；核对：① exit=0 且末行「✅ 全部自检通过」② 30/30 阶段无一被 [ -f ] 守卫跳过 ③ 前 25 阶段合计 = 2098 ④ 合计与 README.md:11 一致。",
+    "4) 跑后立即 md5sum config/config.json，与步骤 0 的基线对比（验证 C-004 的不变量；不一致即 C-004 FAIL）。",
+    "5) 红队 ≥5 条主动证伪（每条给：假设 / 手法 / 命令 / 原始输出 / 结论），至少覆盖：RT-1 不传 canvasId 的整画布删除（items 无 canvas_id 与 items 有 CV-MAIN 两态都必须被拒）；RT-2 越界 canvasId 形态（' CV-MAIN '、'cv-main'）仍按 isMainCanvas 既有语义判定，不得因新代码放宽；RT-3 超限截断后窗口不丢（连续两轮 tick：台账行数与 fired 计数都要给出）；RT-4 反向验证「没有为超限项写 schedule_runs 行」（否则窗口会被唯一索引永久去重）；RT-5 计数不虚报（实跑日志逐阶段对账 README.md:11，且前 25 阶段 2098 守恒）；另加 RT-6（可选）阶段 23 不再改写 config/config.json。",
+    "6) 逐条对照本轮 P0 四项（RK-L6-01 主画布 fail-open / S-10 单轮上限 / RK-L6-06 config 副作用 / occurrence_at 裁决落地），每项给 PASS/FAIL/BLOCKED 与证据锚点。",
+    "7) 写 strategist/reports/C-005-verify.md（按 8 节结构）；按实跑值更新 README.md:11 计数并保留改前/改后原文；最后做红线自查：find . -newermt '-40 minutes' -type f 只应出现本卡白名单文件与 verify-all 自身的设计内产物（docs/全模块功能模拟测试报告.md|.json）。"
+  ],
+  "acceptance_criteria": [
+    "结论速览对 C-002/C-003/C-004 逐卡给出 PASS/FAIL/BLOCKED，每条都带可复核命令；无任何一条依据「实现方自述」",
+    "五个套件真跑：tests/test-schedules.js ≥124、tests/canvas-select.test.mjs ≥228、test-selfheal.js =101、test-subtitle-wrap.js =67、canvas-perf.test.mjs =89，失败数全 0、退出码全 0",
+    "bash scripts/verify-all.sh 一次真跑 exit=0、末行「✅ 全部自检通过」、30/30 阶段无跳过、前 25 阶段合计 = 2098、合计与 README.md:11 一致（不一致时 README 已按实跑值更新并留改前/改后原文）",
+    "跑前/跑后 config/config.json 的 md5 逐字节一致（C-004 不变量成立）；阶段 23 断言数 ≥172",
+    "红队 ≥5 条证伪动作全部有原始输出，含未复现的也如实记录；其中「超限截断后窗口不丢」必须给出连续两轮 tick 的台账行数证据",
+    "本卡零源码/零测试改动：验收前后 web/lib/canvas-select.js、src/schedules.js、tests/canvas-select.test.mjs、tests/test-schedules.js、tests/ui-simulate.py 的 md5 逐字一致（两条 md5sum 输出都在报告里）；唯一写入物是 C-005-verify.md 与 README.md（含 .bak）",
+    "未重启 8788：验收前后 PID 与 STARTED 一致（ps 原始输出在报告里）",
+    "报告含残余风险清单与一句话结论（可以交付 / 不可交付）",
+    "FAIL 项若存在，必须给 文件:行号 + 最小复现命令 + 原始输出，并写明建议的返工卡范围（不得自行改代码）"
+  ],
+  "quality_checks": [
+    "node tests/test-schedules.js; echo \"exit=$?\"",
+    "node tests/canvas-select.test.mjs; echo \"exit=$?\"",
+    "node tests/test-selfheal.js; echo \"exit=$?\"",
+    "node tests/test-subtitle-wrap.js; echo \"exit=$?\"",
+    "node tests/canvas-perf.test.mjs; echo \"exit=$?\"",
+    "bash scripts/verify-all.sh; echo \"exit=$?\"",
+    "md5sum config/config.json",
+    "node /tmp/l6/rt/rt3-batch-maincanvas.mjs",
+    "node /tmp/l6/rt/rt5-readme-counts.mjs",
+    "find . -newermt '-40 minutes' -type f",
+    "ps -o pid,lstart,etime,cmd -p $(pgrep -f 'node server.js' | head -1)"
+  ],
+  "evidence_required": [
+    "逐卡判定与依据（可复核命令 + 原始输出片段）",
+    "五个套件的计数行原文与退出码",
+    "verify-all 一次真跑的 exit、末行、30 个阶段结论行、计数对账表（阶段/README 声明/实跑/是否一致）",
+    "config/config.json 跑前跑后两条 md5sum 原始输出",
+    "红队 ≥5 条假设-手法-命令-原始输出-结论",
+    "验收前后被测文件 md5 对比（证明只读验收）",
+    "残余风险与未覆盖项",
+    "一句话交付结论"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文报告",
+      "只碰 write_scope 白名单",
+      "先自行重跑再下结论",
+      "改既有文件前先 cp <file>.bak"
+    ],
+    "forbidden": [
+      "修改任何源码或测试（只读验收）",
+      "改既有测试期望以凑绿",
+      "重启 8788",
+      "把实现方自评当作验收证据",
+      "改 README.md 第 11 行以外的内容来对齐数字",
+      "写 data/factory.db 或改 config/config.json 的语义值"
+    ]
+  },
+  "do_not_touch": [
+    "src/**、web/**、scripts/**、tests/**（只读）",
+    "strategist/tasks/C-00*.yaml（被验收对象的任务卡，不得改动验收标准）",
+    "strategist/reports/L6-verify.md 与 T-101/T-102/T-103 契约（只读引用）",
+    "config/config.json 与 data/"
+  ],
+  "handoff_to": [
+    "总军师（收口：把本报告结论写入 strategist/runs/C-005.json，并据 FAIL 可选项另开定点返工卡，返工卡 ≤2 次）"
+  ],
+  "max_rework": 2,
+  "requires_backup": true,
+  "rollback_plan": "改动前 cp README.md README.md.bak；失败或误改时 cp README.md.bak README.md 还原，并删除新建的 strategist/reports/C-005-verify.md"
+}

@@ -1,0 +1,32 @@
+{
+  "id": "produce-overseas",
+  "name": "出海版竖屏短剧（含多语言物料）",
+  "desc": "在默认十阶段之后多跑一站「出海物料」：多语言字幕 + 封面帧 + 发布元数据（目标语言取 publish.languages）",
+  "format": "duanju",
+  "ratio": "9:16",
+  "episodes": 3,
+  "episodeSeconds": 60,
+  "castSize": 6,
+  "stages": [
+    "brief",
+    "cast",
+    "novel",
+    "script",
+    "canvas",
+    "keyframe",
+    "video",
+    "finish",
+    "qc",
+    "deliver",
+    "publish"
+  ],
+  "params": {
+    "chaptersToWrite": 0
+  },
+  "retryKinds": [
+    "rate",
+    "server",
+    "network"
+  ],
+  "notes": "publish 阶段不依赖出图/视频能力（纯本地物料），因此 requires 里不声明它"
+}

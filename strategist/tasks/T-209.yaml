@@ -1,0 +1,46 @@
+{
+  "task_id": "T-209",
+  "receiver_role": "development",
+  "priority": "P2",
+  "phase_status": "assigned",
+  "_wave": 2,
+  "task": "实现 web/lib/canvas-perf.js：视口裁剪与 LOD 判定的纯函数抽取（行为与现状一致）",
+  "context": {
+    "original_request": "30 人矩阵并行开发：补齐制片自动化（定时排产、阶段失败自愈换后端）与画布/交付专业能力，全程保持 ./scripts/verify-all.sh 全绿",
+    "repo_constraints": "零依赖 Node≥22 ESM；不得引入新 npm 依赖；不改既有公开函数签名；中文错误与中文注释；测试用临时库与离线假实例"
+  },
+  "dependencies": [
+    "T-105"
+  ],
+  "write_scope": [
+    "web/lib/canvas-perf.js"
+  ],
+  "acceptance_criteria": [
+    "导出 visibleItems/lodLevelFor/shouldDrawLinks/cullStats",
+    "纯函数：无 DOM、无全局读写",
+    "给出 200/1000 卡位的收益说明（用函数自身统计，不编造数字）"
+  ],
+  "quality_checks": [
+    "node --check web/lib/canvas-perf.js",
+    "node -e \"import('./web/lib/canvas-perf.js').then(m=>console.log(Object.keys(m).join(',')))\""
+  ],
+  "evidence_required": [
+    "文件清单",
+    "导出列表"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文注释与中文报错",
+      "只碰 write_scope 白名单"
+    ],
+    "forbidden": [
+      "引入新依赖",
+      "改白名单外文件",
+      "改既有测试期望以凑绿"
+    ]
+  },
+  "max_rework": 2,
+  "requires_backup": false,
+  "rollback_plan": "不涉及（仅新增文件）"
+}

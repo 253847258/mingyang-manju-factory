@@ -1,0 +1,112 @@
+{
+  "task_id": "C-003",
+  "receiver_role": "development",
+  "priority": "P0",
+  "phase_status": "assigned",
+  "_wave": 2,
+  "_round": 2,
+  "round_p0_goal": "第 2 轮 P0 · 落地 T-107 S-10（中危，第 1 轮验收报告 §8 第 5 条明示「未做」）：tickSchedules 一轮可无上限触发 N 条排产，缺配额闸门；同时把 occurrence_at 的终局裁决做成库层纵深防御（manual 窗口键只由服务端生成）。",
+  "task": "给 tickSchedules 加「单轮最多触发 K 条」硬上限（默认 20、可配、夹紧、中文原因、零窗口丢失），并让 manual 触发的窗口键不可被调用方控制；测试补强 ≥8 条断言",
+  "context": {
+    "original_request": "第 2 轮 P0 拆解：把 L6 验收留下的中危风险与「未做项」定点落地，且保持 30 阶段自检全绿、既有 116 条排产断言零回归。",
+    "repo_constraints": "零依赖 Node≥22 ESM；禁止 npm 依赖；禁止重启 8788；禁止改既有测试期望凑绿；中文报错与中文注释；改既有文件前先 cp <file>.bak；测试用 mkdtemp 临时库与临时 config，绝不碰 data/factory.db 与 config/config.json；所有破坏性验证在临时库内完成。",
+    "upstream_evidence": [
+      "strategist/reports/T-107-security-risks.md:74（S-10：runHistoryLimit / maxCatchupEnumerate=4096 只挡枚举，不挡「一次 tick 内触发 N 条排产」；建议 tick 增加单轮触发上限并写中文原因）",
+      "strategist/reports/T-107-security-risks.md:345（S-10 详述与修复口径）",
+      "strategist/reports/T-107-security-risks.md:68（S-04 高：手动触发窗口键由请求方给 → 唯一索引去重被绕开）",
+      "strategist/reports/README.md:78-79（收口报告 §8 第 4 条 occurrence_at 待裁决；第 5 条 S-10 未做）",
+      "strategist/reports/L6-verify.md:200-244（RT-01：并发/跨进程/连续 tick 去重成立，唯一索引 idx_sched_runs_window 是唯一原子去重手段）",
+      "src/schedules.js:157（idx_sched_runs_window 唯一索引定义）、:1416-1429（INSERT OR IGNORE 去重判定）、:1508-1516（recordSkipCounters：只更计数、不写台账行的既有函数）",
+      "strategist/tasks/C-001-round2-contract.yaml（上游契约卡：interface_contract 第 5~9 条）"
+    ]
+  },
+  "dependencies": [
+    "C-001"
+  ],
+  "write_scope": [
+    "src/schedules.js",
+    "src/schedules.js.bak",
+    "tests/test-schedules.js",
+    "tests/test-schedules.js.bak"
+  ],
+  "interface_contract": [
+    "SCHEDULE_DEFAULTS（src/schedules.js:38-56）新增 maxFiresPerTick: 20（与既有 tickSeconds / maxCatchupEnumerate / leaseTtlSeconds 同级，中文注释说明用途与「一轮最多建多少个 job」的口径）。",
+    "schedulesConfig(cfg)（src/schedules.js:166-184）返回体新增 maxFiresPerTick = Math.min(200, Math.max(1, Math.trunc(Number(merged.maxFiresPerTick) || SCHEDULE_DEFAULTS.maxFiresPerTick)))；NaN / 0 / 负数 / 超 200 一律夹紧，禁止抛错（配置来自 config/config.json 的 schedules.maxFiresPerTick，可选）。",
+    "SCHEDULE_RUN_REASON_CODES（:31-37）追加 'skipped_round_cap'；SCHEDULE_REASON_TEXT（:61-65）追加 '单轮触发条数已达上限'；SCHEDULE_RUN_STATUSES 与 runStatusFor（:996-1002）不得改（新码仍归 status='skipped'）。",
+    "tickSchedules（:1533-1601）返回体新增 cap: { limit, fired, capped }（fired/capped 为本轮实际计数）；既有字段 ok/enabled/now/scanned/fired/skipped/deduped/queue 名称与语义不变；jobEvents.emit('schedule:tick', …) 载荷追加 capped。",
+    "截断规则：只在「本项原本会调 fireSchedule」时计数——已 fired 条数达到 cap 后，剩余 due 项一律 skipped.push({ id, name, reasonCode: 'skipped_round_cap', reason: '单轮触发条数已达上限（本轮最多触发 ' + cap + ' 条），该窗口留待下一轮', occurrence, missed, recorded: false })；deduped 与 skipped_no_target 不占额度；dry-run 完全不设限（只判定）。",
+    "被截断项只调 recordSkipCounters(s, { reasonCode: 'skipped_round_cap', reason, occurrence }, { nowISOStr: scan.now, trigger: 'auto' })（:1508-1516），且不传 nextRunAt（水位线不动）；严禁调 recordSkip / insertRunRow —— 台账行会占用 idx_sched_runs_window (schedule_id, window_key, trigger)，下一轮 INSERT OR IGNORE 必判 deduped，窗口永久丢失；该结论必须写进代码中文注释。",
+    "fireSchedule（:1342-1360）的 manual 分支恒用 nowISOStr 作为窗口，忽略传入 occurrence_at；返回值新增 ignoredOccurrence（manual 且入参非空 → 入参原文，否则 null）；auto 分支保留 :1353 既有行为（occurrence_at 仍可用，供补跑与测试）。",
+    "路由层 src/routes/schedules.js:280-298 不改（既有 ignoredOccurrence 回显与语义保持，本卡不动该文件）。"
+  ],
+  "implementation_steps": [
+    "0) cp src/schedules.js src/schedules.js.bak；cp tests/test-schedules.js tests/test-schedules.js.bak；记录 md5sum（src/schedules.js 第 1 轮基线 = e4799441410b5c021cc816c22e2ea81f，见 strategist/reports/L6-verify.md:462）。",
+    "1) 基线取证：node tests/test-schedules.js; echo \"exit=$?\" —— 期望 116 通过 / 0 失败 / exit=0；把计数行原文存入 evidence。",
+    "2) 定位并确认既有事实：sed -n '31,66p;166,184p;996,1002p;1508,1516p;1533,1601p' src/schedules.js —— 确认 src/schedules.js:1552 起的 for (const item of scan.due) 循环结构、dry 分支位置、预算闸门分支位置（截断判定必须放在 dry 分支之后、预算闸门之前，避免被截断项白跑预算探测）。",
+    "3) 加字段与码：SCHEDULE_DEFAULTS 加 maxFiresPerTick: 20；schedulesConfig 归一夹紧；SCHEDULE_RUN_REASON_CODES 加 'skipped_round_cap'；SCHEDULE_REASON_TEXT 加中文。",
+    "4) 改 tickSchedules：循环内维护 firedCount / cappedCount；达到 cap 后走截断分支（recordSkipCounters + push skipped + continue），并在函数中文注释里写明「不得写台账（原因：唯一索引会让窗口永久丢失）」。",
+    "5) 改返回值与事件：返回体加 cap 字段；jobEvents.emit('schedule:tick', …) 加 capped；日志用 console.log 输出一行中文（含本轮 cap 与截断条数），便于运维观察。",
+    "6) 改 fireSchedule manual 分支：occurrence = nowISOStr（忽略入参），并把入参原文放进返回值 ignoredOccurrence；auto 分支一行不改。",
+    "7) tests/test-schedules.js 追加断言（编号沿用现有 ok(...) 风格，至少 8 条）：① cap 默认 20（S.schedulesConfig().maxFiresPerTick === 20）；② 非法配置回退（0 / -1 / 'abc' / 9999 分别断言为 20 / 20 / 20 / 200）；③ 构造 3 条同刻到期排产 + cap=2 → fired.length === 2 且 skipped 里恰有 1 条 reasonCode === 'skipped_round_cap'；④ 被截断项未建 job（jobs 表增量 === 2）；⑤ 被截断项未写 schedule_runs 台账行（该窗口行数 === 0，证明窗口未丢）；⑥ 下一轮 tick（同 now + 60s，仍在该窗口宽限内）能把剩余窗口 fire 成功；⑦ dry-run 不受上限（3 条全部进 fired 且 dryRun=true，jobs 增量 0）；⑧ manual + occurrence_at 无法绕开幂等：同 now 传不同 occurrence_at 连续两次 → 第二次 deduped=true 且 jobs 增量 1；⑨ returned cap.limit === 配置值。",
+    "8) 自检：node --check src/schedules.js；node tests/test-schedules.js; echo \"exit=$?\"（≥124 通过 / 0 失败）；diff tests/test-schedules.js.bak tests/test-schedules.js 只允许新增行。"
+  ],
+  "acceptance_criteria": [
+    "单轮 tick 触发条数不超过 cap：3 条同刻到期 + cap=2 时 fired.length === 2、skipped 含 1 条 reasonCode='skipped_round_cap' 且 reason 为中文原文",
+    "被截断的窗口不丢失：被截断项不写 schedule_runs 行，下一轮 tick 仍能 fire 成功；台账中该 (schedule_id, window_key, trigger) 行数在截断时恒为 0（防「记 skipped 台账 → 唯一索引去重 → 窗口永久丢」）",
+    "被截断项零副作用：不建 job、不建项目、不进预算闸门（可用假 budgetGate 计数或 jobs 增量断言证明）",
+    "配置健壮：maxFiresPerTick 缺失 → 20；0 / 负数 / 非数字 → 20；> 200 → 200；均不抛错",
+    "dry-run 不受上限约束；返回值 cap.{limit,fired,capped} 与 jobEvents 载荷 capped 均可断言",
+    "manual 触发忽略传入 occurrence_at：同一 now 换不同 occurrence_at 连续两次 → 第二次 deduped=true，jobs 增量恒为 1；返回值 ignoredOccurrence 为入参原文（未传时为 null）",
+    "auto 分支行为零回归：tests/test-schedules.js 既有 305 / 328 / 339 行的 occurrence_at 用法仍通过",
+    "node tests/test-schedules.js → 通过数 ≥124 / 失败 0 / exit=0（基线 116，只增不减）；尾部既有断言（SCHEDULE_KINDS.length===6、MISS_POLICIES 三重、SCHEDULE_RUN_STATUSES 五元组）逐字未改",
+    "node --check src/schedules.js exit=0；零新增 npm 依赖；测试全程使用临时库（不得出现 data/factory.db）"
+  ],
+  "quality_checks": [
+    "node --check src/schedules.js",
+    "node tests/test-schedules.js; echo \"exit=$?\"",
+    "grep -n 'maxFiresPerTick' src/schedules.js tests/test-schedules.js",
+    "grep -n 'skipped_round_cap' src/schedules.js tests/test-schedules.js",
+    "grep -n 'ignoredOccurrence' src/schedules.js",
+    "node -e \"import('./src/schedules.js').then((S)=>{console.log('默认',S.schedulesConfig().maxFiresPerTick,'非法',S.schedulesConfig({schedules:{maxFiresPerTick:0}}).maxFiresPerTick,'超界',S.schedulesConfig({schedules:{maxFiresPerTick:9999}}).maxFiresPerTick);})\"",
+    "diff tests/test-schedules.js.bak tests/test-schedules.js | grep -c '^<'",
+    "grep -c 'factory.db' tests/test-schedules.js"
+  ],
+  "evidence_required": [
+    "修改文件清单（含 md5 与行数）",
+    "改前/改后 node tests/test-schedules.js 的计数行原文与退出码",
+    "截断语义的三条硬证据原始输出：fired 计数、被截断窗口 schedule_runs 行数 = 0、下一轮 fire 成功",
+    "manual 幂等加固的原始输出（两次触发 jobs 增量）",
+    "既有断言零改动的 diff 计数（'^<' 行数必须为 0）",
+    "未解决风险（含：若 cap 小于宽限期内可补跑的窗口数，会发生 skipped_missed 的语义边界说明）"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文注释与中文报错",
+      "只碰 write_scope 白名单",
+      "改既有文件前先 cp <file>.bak"
+    ],
+    "forbidden": [
+      "引入新依赖",
+      "改白名单外文件",
+      "改既有测试期望以凑绿",
+      "重启 8788",
+      "用真实 config/config.json 或 data/factory.db 做验证",
+      "为超限项写 schedule_runs 台账行"
+    ]
+  },
+  "do_not_touch": [
+    "src/routes/schedules.js（路由层既有 ignoredOccurrence 行为保持，本卡不改）",
+    "web/**",
+    "scripts/verify-all.sh",
+    "tests/ui-simulate.py",
+    "config/config.json 与 data/",
+    "src/self-heal.js 与 src/studio.js（自愈线不属本轮 P0）"
+  ],
+  "handoff_to": [
+    "C-005（独立验收：独立重跑套件 + 红队复现截断与幂等，不接受实现方自评）"
+  ],
+  "max_rework": 2,
+  "requires_backup": true,
+  "rollback_plan": "改动前 cp src/schedules.js src/schedules.js.bak 与 cp tests/test-schedules.js tests/test-schedules.js.bak；失败时用 .bak 覆盖还原两个文件，再跑 node tests/test-schedules.js 确认回到 116 通过 / 0 失败"
+}

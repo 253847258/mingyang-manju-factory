@@ -1,0 +1,46 @@
+{
+  "task_id": "T-207",
+  "receiver_role": "development",
+  "priority": "P2",
+  "phase_status": "assigned",
+  "_wave": 2,
+  "task": "实现 src/subtitle-wrap.js：中文断行（标点优先、禁行首标点、数字英文不拆）+ 与单行上限/安全区联动",
+  "context": {
+    "original_request": "30 人矩阵并行开发：补齐制片自动化（定时排产、阶段失败自愈换后端）与画布/交付专业能力，全程保持 ./scripts/verify-all.sh 全绿",
+    "repo_constraints": "零依赖 Node≥22 ESM；不得引入新 npm 依赖；不改既有公开函数签名；中文错误与中文注释；测试用临时库与离线假实例"
+  },
+  "dependencies": [
+    "T-104"
+  ],
+  "write_scope": [
+    "src/subtitle-wrap.js"
+  ],
+  "acceptance_criteria": [
+    "导出 wrapCjkSmart/wrapCuesForPlatform/estimateLines",
+    "默认参数下与现有 18 字行为兼容（同输入同输出）",
+    "不改 src/finish.js 的任何函数签名"
+  ],
+  "quality_checks": [
+    "node --check src/subtitle-wrap.js",
+    "node -e \"import('./src/subtitle-wrap.js').then(m=>console.log(Object.keys(m).join(',')))\""
+  ],
+  "evidence_required": [
+    "文件清单",
+    "与旧 wrapCjk 的对比样例（3 组）"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文注释与中文报错",
+      "只碰 write_scope 白名单"
+    ],
+    "forbidden": [
+      "引入新依赖",
+      "改白名单外文件",
+      "改既有测试期望以凑绿"
+    ]
+  },
+  "max_rework": 2,
+  "requires_backup": false,
+  "rollback_plan": "不涉及（仅新增文件）"
+}

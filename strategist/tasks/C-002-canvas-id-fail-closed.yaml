@@ -1,0 +1,104 @@
+{
+  "task_id": "C-002",
+  "receiver_role": "development",
+  "priority": "P0",
+  "phase_status": "assigned",
+  "_wave": 2,
+  "_round": 2,
+  "round_p0_goal": "第 2 轮 P0 · 消除 RK-L6-01（中危）：web/lib/canvas-select.js:502 的主画布判定只认调用方传入的 canvasId，缺省即为 fail-open —— 实测不传 canvasId 时整画布批量删除被放行（ok=true affected=5 请求数=10）。本卡把它改成三级自证 + 危险动作缺省拒绝。",
+  "task": "修 RK-L6-01：planBatch 的 canvasId 三级自证（opts → params → items[*].node.canvas_id）与缺省拒绝码 CANVAS_ID_REQUIRED，并在 tests/canvas-select.test.mjs 补 ≥6 条断言（断言只增不减，既有期望零改动）",
+  "context": {
+    "original_request": "第 2 轮 P0 拆解：把 L6 验收留下的中危风险定点修掉，且不破坏既有 222 条断言与 30 阶段自检。",
+    "repo_constraints": "零依赖 Node≥22 ESM；禁止 npm 依赖；禁止重启 8788；禁止改既有测试期望凑绿；中文报错与中文注释；改既有文件前先 cp <file>.bak；测试用 mkdtemp 临时库与临时 config，不碰 data/factory.db 与 config/config.json。",
+    "upstream_evidence": [
+      "strategist/reports/L6-verify.md:425（RK-L6-01 完整事实与建议处置：让 planBatch 从 node.canvas_id 自证或把 canvasId 设为必填；缺省应拒绝而不是放行）",
+      "strategist/reports/L6-verify.md:245-286（RT-03 实测输出：第⑤步 :266 不传 canvasId → code=NEED_CONFIRM affected=5；第⑨b 步 :276 确认后 ok=true affected=5 请求数=10）",
+      "strategist/reports/README.md:75（收口报告 §8 第 1 条，明示当前唯一调用点已传值、真实路径不受影响）",
+      "web/views/actors.js:4862-4866（唯一调用点，已显式传 canvasId: S.canvasId 与 canvasTotal: items.length；本卡不改该文件）",
+      "strategist/tasks/C-001-round2-contract.yaml（上游契约卡：interface_contract 第 1~4 条）"
+    ]
+  },
+  "dependencies": [
+    "C-001"
+  ],
+  "write_scope": [
+    "web/lib/canvas-select.js",
+    "web/lib/canvas-select.js.bak",
+    "tests/canvas-select.test.mjs",
+    "tests/canvas-select.test.mjs.bak"
+  ],
+  "interface_contract": [
+    "planBatch(action, items, params, opts) 的计划字段新增 canvasSource ∈ 'opts' | 'params' | 'items' | 'none'，与既有 canvasId、mainCanvas 字段并列；既有字段名、类型、含义不变。",
+    "entryOf(item, index)（web/lib/canvas-select.js:243-265）新增只读字段 canvasId: node ? String(node.canvas_id || '') : ''；不得修改入参 item/node 对象（既有断言 D 段「不修改入参」必须继续通过）。",
+    "canvasId 三级取值：String(opts.canvasId || params.canvasId || 首个非空 items[*].node.canvas_id || '')；三级都取不到时 canvasSource === 'none'。",
+    "新增错误码 CANVAS_ID_REQUIRED，中文 reason 固定为：未提供画布 ID，无法确认是否为主画布，已拒绝整画布批量删除：请传 canvasId（或 canvasTotal）后重试。仅在 action === 'delete' 且（params.scope === 'all' 或 coversAll 成立）且 canvasSource === 'none' 时返回。",
+    "判定顺序（delete）：① scope === 'canvas' → CANVAS_DELETE_FORBIDDEN（web/lib/canvas-select.js:707，不变）② canvasSource === 'none' 且整画布语义 → CANVAS_ID_REQUIRED（新）③ plan.mainCanvas 且 coversAll → MAIN_CANVAS_GUARD（:716，不变）④ 其余按既有 NEED_CONFIRM 闸门（:955-995）。",
+    "applyBatchPlan 对 CANVAS_ID_REQUIRED 返回 ok === false、effects === []，code 与 reason 原样透传（走 web/lib/canvas-select.js:1081-1088 既有分支，不得新增分支绕过）。",
+    "冻结面（禁止改动）：isMainCanvas（:283）、BATCH_MESSAGES.mainCanvasGuard（:716 文案）、CANVAS_DELETE_FORBIDDEN（:707）、delete 的 effects 顺序（先 DELETE /api/canvas/nodes/:id/links 再 DELETE /api/canvas/node/:id）。"
+  ],
+  "implementation_steps": [
+    "0) cp web/lib/canvas-select.js web/lib/canvas-select.js.bak；cp tests/canvas-select.test.mjs tests/canvas-select.test.mjs.bak；记录 md5sum（web/lib/canvas-select.js 第 1 轮基线 = 8fad191e6608defd48ee9f62b91a08f6，见 strategist/reports/L6-verify.md:462）。",
+    "1) 基线取证：node tests/canvas-select.test.mjs; echo \"exit=$?\" —— 期望 222 通过 / 0 失败 / exit=0。把计数行原文粘进 evidence（后续对比只增不减）。",
+    "2) 复现原缺陷（脚本落 /tmp，不新增仓库文件）：node /tmp/l6/rt/rt3-batch-maincanvas.mjs —— 记录第⑤步（不传 canvasId 的整画布删除）与第⑨b 步的原始输出。",
+    "3) 改 entryOf（:243-265）：加只读字段 canvasId（取自 item.node.canvas_id）。",
+    "4) 改 makePlanBase（:485-511）：把 :486 的取值改为三级并记录来源；:502 的 mainCanvas 判定保持调用 isMainCanvas(canvasId)。",
+    "5) 改 planDelete（:690-806）：按 interface_contract 的判定顺序插入 CANVAS_ID_REQUIRED 分支（新码必须在 coversAll 计算之后、NEED_CONFIRM 之前）；中文注释说明「缺省必须拒绝而不是放行，理由见 RK-L6-01」。",
+    "6) 在 tests/canvas-select.test.mjs 末尾（既有 C 段之后、结算行之前）追加断言，编号从 B7i 起：B7i 不传 canvasId + scope='all' → CANVAS_ID_REQUIRED；B7j 不传 canvasId 但 items[*].node.canvas_id='CV-MAIN' + canvasTotal 覆盖 → MAIN_CANVAS_GUARD（自证生效）；B7k 不传 canvasId + 部分选区（2/9）→ 原行为 NEED_CONFIRM（不得新增拒绝）；B7l canvasSource 取值断言（'opts' / 'params' / 'items' / 'none' 四态）；B7m applyBatchPlan 对 CANVAS_ID_REQUIRED → ok=false 且 effects 长度 0；B7n 自证出的 canvasId 会写进 effects（actor 分支 body.canvas_id 与 plan.canvasId 一致）。",
+    "7) 自检：node --check web/lib/canvas-select.js；node tests/canvas-select.test.mjs; echo \"exit=$?\"（期望 ≥228 通过 / 0 失败）；再跑一次 node /tmp/l6/rt/rt3-batch-maincanvas.mjs 证明第⑤/⑨b 步已不再放行。",
+    "8) 核对既有断言零改动：diff tests/canvas-select.test.mjs.bak tests/canvas-select.test.mjs 只应出现新增行（不得有 '>' 行落在原 222 条断言上）。"
+  ],
+  "acceptance_criteria": [
+    "不传 canvasId 且 items 无法自证时，整画布批量删除（scope='all' 或件数覆盖整画布）返回 code=CANVAS_ID_REQUIRED，reason 含「未提供画布 ID」与「已拒绝」两处原文",
+    "不传 canvasId 但 items[*].node.canvas_id='CV-MAIN' 且覆盖整画布时返回 code=MAIN_CANVAS_GUARD（自证生效，不是新码）",
+    "不传 canvasId 的部分选区（coversAll 不成立）行为与修改前逐字节相同（NEED_CONFIRM，确认段数与提示文案一致）",
+    "applyBatchPlan 对 CANVAS_ID_REQUIRED 拒绝落地：ok=false、effects=[]、code/reason 原样",
+    "计划对象新增 canvasSource 字段，四态取值均可断言",
+    "node tests/canvas-select.test.mjs → 通过数 ≥228 / 失败 0 / exit=0（基线 222，只增不减）",
+    "既有 222 条断言的名称与期望值零改动：diff 中不存在被替换或删除的既有断言行；测试尾部「D3 被测模块是纯函数库」「不修改入参」「B7h isMainCanvas 为硬编码字符串比对」三条仍逐字存在",
+    "node --check web/lib/canvas-select.js exit=0；零新增 npm 依赖"
+  ],
+  "quality_checks": [
+    "node --check web/lib/canvas-select.js",
+    "node tests/canvas-select.test.mjs; echo \"exit=$?\"",
+    "grep -n 'CANVAS_ID_REQUIRED' web/lib/canvas-select.js tests/canvas-select.test.mjs",
+    "grep -n 'canvasSource' web/lib/canvas-select.js",
+    "node -e \"import('./web/lib/canvas-select.js').then((m)=>{const it=[{node:{id:'ND-1',canvas_id:'CV-MAIN'},x:1,y:1,w:2,h:2}];const p=m.planBatch('delete',it,{scope:'all'},{});console.log(p.code,p.canvasSource,p.canvasId,p.mainCanvas);})\"",
+    "node /tmp/l6/rt/rt3-batch-maincanvas.mjs",
+    "diff tests/canvas-select.test.mjs.bak tests/canvas-select.test.mjs | grep -c '^<'"
+  ],
+  "evidence_required": [
+    "修改文件清单（含 md5 与行数）",
+    "改前/改后 node tests/canvas-select.test.mjs 的计数行原文与退出码",
+    "红队复现脚本 rt3 改前/改后第⑤步与第⑨b 步的原始输出",
+    "既有断言零改动的 diff 计数（'^<' 行数必须为 0）",
+    "未解决风险"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文注释与中文报错",
+      "只碰 write_scope 白名单",
+      "改既有文件前先 cp <file>.bak"
+    ],
+    "forbidden": [
+      "引入新依赖",
+      "改白名单外文件",
+      "改既有测试期望以凑绿",
+      "重启 8788",
+      "改 isMainCanvas / BATCH_MESSAGES.mainCanvasGuard / CANVAS_DELETE_FORBIDDEN 的既有语义"
+    ]
+  },
+  "do_not_touch": [
+    "web/views/actors.js（唯一调用点已传 canvasId，接线不属本卡；RK-L6-03 的 canvas-perf 接线留待 P1 另开卡）",
+    "src/**",
+    "tests/ui-simulate.py",
+    "scripts/verify-all.sh",
+    "config/config.json 与 data/"
+  ],
+  "handoff_to": [
+    "C-005（独立验收：按 acceptance_criteria 逐条复核，并独立重跑 rt3 与套件）"
+  ],
+  "max_rework": 2,
+  "requires_backup": true,
+  "rollback_plan": "改动前 cp web/lib/canvas-select.js web/lib/canvas-select.js.bak 与 cp tests/canvas-select.test.mjs tests/canvas-select.test.mjs.bak；失败时用 .bak 覆盖还原两个文件，再跑 node tests/canvas-select.test.mjs 确认回到 222 通过 / 0 失败"
+}

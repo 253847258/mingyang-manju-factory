@@ -1,0 +1,47 @@
+{
+  "task_id": "T-203",
+  "receiver_role": "development",
+  "priority": "P1",
+  "phase_status": "assigned",
+  "_wave": 2,
+  "task": "实现 src/self-heal.js：错误分类→降级链→单次重试→结构化结果（换掉了什么、为什么、影响）",
+  "context": {
+    "original_request": "30 人矩阵并行开发：补齐制片自动化（定时排产、阶段失败自愈换后端）与画布/交付专业能力，全程保持 ./scripts/verify-all.sh 全绿",
+    "repo_constraints": "零依赖 Node≥22 ESM；不得引入新 npm 依赖；不改既有公开函数签名；中文错误与中文注释；测试用临时库与离线假实例"
+  },
+  "dependencies": [
+    "T-102"
+  ],
+  "write_scope": [
+    "src/self-heal.js"
+  ],
+  "acceptance_criteria": [
+    "导出 classifyForHeal/fallbackChain/runWithHeal/describeHeal",
+    "只对 rate/server/network/timeout 类自愈；鉴权/额度/审核类不自愈",
+    "最多降级 1 次、重试 1 次，超出则如实失败",
+    "结果里必须带 degraded:true 与 from/to 后端"
+  ],
+  "quality_checks": [
+    "node --check src/self-heal.js",
+    "node -e \"import('./src/self-heal.js').then(m=>console.log(Object.keys(m).join(',')))\""
+  ],
+  "evidence_required": [
+    "文件清单",
+    "导出与自测输出"
+  ],
+  "constraints": {
+    "must": [
+      "最小改动",
+      "中文注释与中文报错",
+      "只碰 write_scope 白名单"
+    ],
+    "forbidden": [
+      "引入新依赖",
+      "改白名单外文件",
+      "改既有测试期望以凑绿"
+    ]
+  },
+  "max_rework": 2,
+  "requires_backup": false,
+  "rollback_plan": "不涉及（仅新增文件）"
+}

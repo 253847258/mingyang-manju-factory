@@ -1,0 +1,50 @@
+{
+  "server": { "host": "127.0.0.1", "port": 8788 },
+  "llm": {
+    "provider": "deepseek",
+    "baseUrl": "https://api.deepseek.com",
+    "apiKey": "",
+    "model": "deepseek-chat",
+    "temperature": 0.85,
+    "maxTokens": 8000,
+    "timeoutMs": 600000,
+    "concurrency": 1
+  },
+  "image": {
+    "backend": "placeholder",
+    "concurrency": 2,
+    "defaultRatio": "3:4",
+    "defaultWidth": 1024,
+    "defaultHeight": 1536,
+    "openai": {
+      "baseUrl": "https://api.openai.com",
+      "apiKey": "",
+      "model": "gpt-image-1",
+      "generatePath": "/v1/images/generations",
+      "editPath": "/v1/images/edits"
+    },
+    "generic": {
+      "url": "https://你的厂商接口/v1/images/generations",
+      "method": "POST",
+      "headers": "{\"Content-Type\":\"application/json\",\"Authorization\":\"Bearer {{apiKey}}\"}",
+      "bodyTemplate": "{\"model\":\"{{model}}\",\"prompt\":\"{{prompt}}\",\"negative_prompt\":\"{{negative}}\",\"width\":{{width}},\"height\":{{height}},\"seed\":{{seed}},\"n\":1}",
+      "responseImagePath": "data.0.b64_json",
+      "apiKey": "",
+      "model": "",
+      "refImageField": "image",
+      "refImageFormat": "base64",
+      "pollUrl": "",
+      "pollIntervalMs": 3000,
+      "pollMaxTimes": 100,
+      "pollStatusPath": "data.status",
+      "pollSuccessValues": "succeeded,success,SUCCESS,done,completed"
+    },
+    "comfy": {
+      "url": "",
+      "workflowPath": "",
+      "map": "{\"positive\":\"6.text\",\"negative\":\"7.text\",\"width\":\"5.width\",\"height\":\"5.height\",\"seed\":\"3.seed\",\"steps\":\"3.steps\",\"cfg\":\"3.cfg\"}",
+      "refImageNode": "10.image",
+      "timeoutMs": 600000
+    }
+  }
+}

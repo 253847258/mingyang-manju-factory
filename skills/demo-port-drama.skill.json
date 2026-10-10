@@ -1,0 +1,31 @@
+{
+  "id": "demo-port-drama",
+  "name": "模板·雾港悬疑竖屏",
+  "desc": "由制片项目 PR-mujk69p4da7f83 固化：悬疑烧脑 / 日系赛璐璐动漫",
+  "format": "duanju",
+  "ratio": "9:16",
+  "episodes": 2,
+  "episodeSeconds": 30,
+  "castSize": 4,
+  "stages": [
+    "brief",
+    "cast",
+    "novel",
+    "script",
+    "canvas",
+    "keyframe",
+    "video",
+    "finish",
+    "qc",
+    "deliver"
+  ],
+  "params": {
+    "chaptersToWrite": 0,
+    "reuseActors": true,
+    "genre": "",
+    "styleId": "jp-anime",
+    "tone": "悬疑烧脑"
+  },
+  "source": "制片项目 PR-mujk69p4da7f83",
+  "exportedAt": "2026-09-27T14:07:21.175Z"
+}
