@@ -52,6 +52,7 @@ const FAST = [
   'test-clock-skew.js',
   'test-novel-ai.js',
   'test-novel-outline-ai.js',
+  'test-novel-writing.js',
   'test-scripting-enhance.js',
 ];
 

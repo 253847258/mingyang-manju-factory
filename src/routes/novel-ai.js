@@ -5,6 +5,7 @@ import { generateFrameworkProposal, commitCharacters } from '../novel-ai.js';
 import {
   outlineAiStatus, loadSections, novelOf, fillSections, generateSection, planChapters, saveOutlineVersion,
 } from '../novel-outline-ai.js';
+import { writeLongChapter } from '../novel-writing.js';
 
 function param(ctx, name) {
   return ctx?.params && typeof ctx.params === 'object' ? ctx.params[name] : '';
@@ -118,5 +119,17 @@ export function registerNovelAiRoutes(app) {
       if (!sections) throw new Error('缺少 sections');
       ctx.json({ ok: true, saved: saveOutlineVersion(param(ctx, 'id'), sections, { source: String(body.source || 'ai-save'), note: String(body.note || '') }) });
     } catch (err) { throw badRequest(err.message || '保存大纲失败'); }
+  });
+
+  app.post('/api/novels/:id/chapters/:idx/ai-write', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      const idx = Number.parseInt(param(ctx, 'idx'), 10);
+      if (!Number.isInteger(idx) || idx < 1) throw new Error('章节序号必须是正整数');
+      ctx.json(await writeLongChapter(param(ctx, 'id'), idx, {
+        save: body.save !== false,
+        instruction: String(body.instruction || ''),
+      }));
+    } catch (err) { throw badRequest(err.message || '长章节写作失败'); }
   });
 }

@@ -110,6 +110,9 @@ const OUTLINE_SECTIONS_FALLBACK = [
 ];
 const CHAPTER_OUTLINE_MIN_CHARS = 2500;
 const CHAPTER_OUTLINE_MAX_CHARS = 3500;
+const CHAPTER_WRITE_MIN_WORDS = 2500;
+const CHAPTER_WRITE_MAX_WORDS = 3500;
+const CHAPTER_WRITE_TARGET_WORDS = 3000;
 
 const S = {
   root: null, ctx: null, meta: null, llm: null,
@@ -444,7 +447,7 @@ function workspaceHtml() {
       </div>
       <div class="nv-row">
         <div class="nv-bar"><i style="width:${num(st.progress, 0)}%"></i></div>
-        <span class="nv-muted">已写 ${st.written || 0}/${st.total || 0} 章 · 共 ${fmtWords(st.words || 0)} · 目标 ${fmtWords(n.target_words)} · 单章 ${n.chapter_words} 字 · 角色 ${n.cast_total}/${n.cast_size}</span>
+        <span class="nv-muted">已写 ${st.written || 0}/${st.total || 0} 章 · 共 ${fmtWords(st.words || 0)} · 目标 ${fmtWords(n.target_words)} · 单章正文 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字 · 角色 ${n.cast_total}/${n.cast_size}</span>
       </div>
       ${!llmReady() ? `<div class="nv-warn" style="margin-top:8px">LLM 未就绪：生成大纲/章节会失败。请到「设置」页填写 API Key，或把 provider 切换为 <b>mock（离线模板）</b> 后先跑通流程。
         <button class="nv-btn nv-btn-sm" data-act="goto-settings">去设置</button>
@@ -660,7 +663,7 @@ function chaptersHtml() {
   return `<div class="nv-card">
     <div class="nv-card-t">章节（写 ${st.written || 0} / 共 ${st.total || 0} · ${fmtWords(st.words || 0)}）
       <span class="nv-grow"></span>
-      <span class="nv-hint">每章都会带上下文生成：全书框架 + 本章大纲 + 前 2~3 章摘要与结尾 500 字 + 人物/地点档案 + 未回收伏笔 + 已发生事件时间线</span>
+      <span class="nv-hint">每章正文按 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字规划，并带全书框架、本章大纲、前章结尾、人物/地点和伏笔上下文</span>
     </div>
     <div class="nv-row">
       <span class="nv-lbl" style="margin:0">写作范围</span>
@@ -707,9 +710,9 @@ function readerHtml() {
     ${c.summary ? `<div class="nv-note" style="margin-bottom:8px"><b>大纲：</b>${esc(c.summary)}<br><b>章末钩子：</b>${esc(c.cliffhanger || c.hook || '—')}　<b>人物：</b>${esc((c.characters || []).join('、') || '—')}　<b>地点：</b>${esc((c.locations || []).join('、') || '—')}</div>` : ''}
     ${S.editing
       ? `<textarea class="nv-area" id="nv-content" data-role="content" rows="22" style="min-height:46vh">${esc(c.content || '')}</textarea>
-         <div class="nv-hint" id="nv-content-count">当前 ${fmtWords(c.words || 0)}（目标 ${S.detail.novel.chapter_words} 字）</div>`
+         <div class="nv-hint" id="nv-content-count">当前 ${fmtWords(c.words || 0)}（目标 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字）</div>`
       : (hasContent ? `<div class="nv-read" id="nv-read">${paras.map((p) => `<p>${esc(p)}</p>`).join('')}</div>`
-        : `<div class="nv-empty">本章尚未写作<br><span class="nv-hint">点上方「↻ 重写」或章节列表的「写作」按钮开始生成本章</span></div>`)}
+        : `<div class="nv-empty">本章尚未写作<br><span class="nv-hint">点上方「↻ 重写」或章节列表的「写作」按钮，按 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字生成本章</span></div>`)}
   </div>`;
 }
 
@@ -1203,12 +1206,35 @@ function stopWatching() {
 }
 
 async function startWrite(payload) {
-  const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/chapters/generate`, payload));
+  const r = await guard(async () => {
+    const cw = num(S.detail?.novel?.chapter_words, 0);
+    if (cw < CHAPTER_WRITE_MIN_WORDS || cw > CHAPTER_WRITE_MAX_WORDS) {
+      await S.ctx.api.put(`/api/novels/${S.currentId}`, { chapter_words: CHAPTER_WRITE_TARGET_WORDS });
+      await reloadDetail();
+    }
+    return S.ctx.api.post(`/api/novels/${S.currentId}/chapters/generate`, payload);
+  });
   if (r?.jobId) {
     S.tab = 'chapters';
     watchJob(r.jobId);
-    toast(`已创建写作任务：${r.total} 章`, 'info');
+    toast(`已创建长章写作任务：${r.total} 章（按 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字规划）`, 'info');
   }
+}
+
+async function startLongWrite(idx) {
+  const chapter = (S.detail?.chapters || []).find((x) => num(x.idx, 0) === num(idx, 0));
+  if (!chapter) { toast(`第 ${idx} 章不存在`, 'err'); return; }
+  if (chapter.status === 'done' && !(await S.ctx.confirm(`第 ${idx} 章已有正文，将按 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字重新生成并覆盖。继续？`))) return;
+  const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/chapters/${idx}/ai-write`, {
+    save: true,
+  }));
+  if (!r) return;
+  toast(`第 ${idx} 章写作完成：${r.words} 字${r.mocked ? '（离线占位）' : ''}`, r.words >= CHAPTER_WRITE_MIN_WORDS && r.words <= CHAPTER_WRITE_MAX_WORDS ? 'ok' : 'warn');
+  S.tab = 'chapters';
+  S.chapterIdx = idx;
+  await reloadDetail();
+  await loadChapter(idx);
+  await loadList();
 }
 
 async function loadChapter(idx) {
@@ -1261,8 +1287,7 @@ function bindAreaCounters() {
   const content = S.root?.querySelector('#nv-content');
   const cc = S.root?.querySelector('#nv-content-count');
   if (content && cc) {
-    const target = num(S.detail?.novel?.chapter_words, 2000);
-    const upd = () => { cc.textContent = `当前约 ${content.value.replace(/\s/g, '').length} 字（目标 ${target} 字，偏离过大时生成会要求续写补足）`; };
+    const upd = () => { cc.textContent = `当前约 ${content.value.replace(/\s/g, '').length} 字（目标 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字）`; };
     content.addEventListener('input', upd);
   }
   if (S.form?.ref_doc_path) loadRefPreview();
@@ -1342,7 +1367,12 @@ async function onClickEvent(e) {
     case 'outline-ai-section': await startOutlineAiSection(el.dataset.key, el.dataset.label || '大纲分节'); return;
     case 'outline-optimize': optimizeOutline(); return;
     case 'outline-append': appendOutline(); return;
-    case 'write-next': await startWrite({ mode: 'next', count: 1 }); return;
+    case 'write-next': {
+      const next = (S.detail?.chapters || []).find((c) => c.status !== 'done');
+      if (!next) { toast('所有章节都已写完', 'info'); return; }
+      await startLongWrite(next.idx);
+      return;
+    }
     case 'write-all': await startWrite({ mode: 'all', force: !!readVal('force') }); return;
     case 'write-batch': S.tab = 'chapters'; render(); return;
     case 'write-custom': {
@@ -1354,7 +1384,7 @@ async function onClickEvent(e) {
       await startWrite(payload);
       return;
     }
-    case 'gen-chapter': await startWrite({ mode: 'range', from: idx, to: idx, force: true }); return;
+    case 'gen-chapter': await startLongWrite(idx); return;
     case 'read': await loadChapter(idx); return;
     case 'edit-chapter': S.editing = true; render(); return;
     case 'cancel-edit': S.editing = false; render(); return;
