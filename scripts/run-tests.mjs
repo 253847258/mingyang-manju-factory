@@ -51,6 +51,7 @@ const FAST = [
   'test-model-registry.js',
   'test-clock-skew.js',
   'test-novel-ai.js',
+  'test-novel-outline-ai.js',
   'test-scripting-enhance.js',
 ];
 

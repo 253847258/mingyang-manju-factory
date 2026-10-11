@@ -476,11 +476,17 @@ function jobBarHtml() {
 // ---------- 大纲面板 ----------
 function outlineHtml() {
   const o = S.detail.outline;
+  const s = o?.sections || {};
+  const empty = S.sections.filter((sec) => outlineSectionEmpty(sec.key, s[sec.key]));
+  const emptyFillable = empty.filter((sec) => sec.key !== 'chapters');
   if (!o) {
-    return `<div class="nv-card"><div class="nv-empty">还没有大纲。<br>点上方 <b>① 生成章节大纲</b>，一次性产出：故事走向 · 故事框架逻辑 · 全篇因果链 · 伏笔表（埋设章→回收章）· 宏大时间线 · 地点档案（L-0001）· 人物ID出场规划 · 反转清单 · 节奏卡点 · 章末钩子 · 跨季章节时间回路。</div>
-      <div class="nv-hint" style="text-align:center">LLM 未配置时可在「设置」页把 provider 切到 mock（离线模板）先看结构。</div></div>`;
+    return `<div class="nv-card"><div class="nv-empty">还没有大纲。<br>点 <b>✨ AI 自动规划生成</b>，自动规划章节大纲与每一节内容：故事走向 · 故事框架逻辑 · 全篇因果链 · 伏笔表（埋设章→回收章）· 宏大时间线 · 地点档案（L-0001）· 人物ID出场规划 · 反转清单 · 节奏卡点 · 章末钩子 · 跨季章节时间回路。</div>
+      <div class="nv-row" style="justify-content:center;margin-top:10px">
+        <button class="nv-btn nv-btn-a" data-act="outline-ai-plan">✨ AI 自动规划生成</button>
+        <button class="nv-btn" data-act="outline-gen">仅生成章节大纲</button>
+      </div>
+      <div class="nv-hint" style="text-align:center;margin-top:8px">LLM 未配置时可在「设置」页把 provider 切到 mock（离线模板）先看结构。</div></div>`;
   }
-  const s = o.sections || {};
   const meta = o.meta || {};
   return `<div class="nv-card">
     <div class="nv-card-t">结构化大纲
@@ -490,10 +496,12 @@ function outlineHtml() {
       <span class="nv-pill">${esc(String(o.created_at || '').slice(0, 19).replace('T', ' '))}</span>
       ${meta.mode === 'mock' ? badge('离线模板内容', 'warn') : ''}
       <span class="nv-grow"></span>
+      <button class="nv-btn nv-btn-a nv-btn-sm" data-act="outline-ai-plan" title="自动规划缺失的章节大纲，并逐节补齐所有空缺内容">✨ AI 自动规划生成</button>
       <button class="nv-btn nv-btn-sm" data-act="outline-optimize">✎ 按指令优化</button>
       <button class="nv-btn nv-btn-sm" data-act="outline-append" title="超长篇分卷/分批继续：保留已有章节大纲，从第 N 章往后继续规划">⤵ 续规划章节</button>
       <button class="nv-btn nv-btn-sm" data-act="outline-gen">↻ 重新生成</button>
     </div>
+    <div class="nv-note" style="margin-bottom:8px">AI 规划状态：${S.sections.length} 个分节中 <b>${empty.length}</b> 个为空${emptyFillable.length ? `（可自动补齐 ${emptyFillable.length} 个，章节大纲按批量规划）` : '（非章节内容已完整）'}</div>
     ${(meta.warnings || []).length ? `<div class="nv-warn" style="margin-bottom:8px">${meta.warnings.map((w) => esc(w)).join('<br>')}</div>` : ''}
     ${meta.instruction ? `<div class="nv-note" style="margin-bottom:8px"><b>生成时的额外要求：</b>${esc(meta.instruction)}</div>` : ''}
     ${s.logline ? `<div class="nv-note" style="margin-bottom:8px"><b>一句话故事：</b>${esc(s.logline)}</div>` : ''}
@@ -501,10 +509,23 @@ function outlineHtml() {
   </div>`;
 }
 
+function outlineSectionEmpty(key, val) {
+  if (key === 'chapters') {
+    return !(Array.isArray(val) && val.some((c) => c && !c._placeholder && (c.summary || c.title)));
+  }
+  if (val == null) return true;
+  if (Array.isArray(val)) return val.length === 0;
+  if (typeof val === 'object') return Object.keys(val).length === 0;
+  return !String(val).trim();
+}
+
 function sectionHtml(sec, val) {
   const count = Array.isArray(val) ? val.length : (val && typeof val === 'object' ? Object.keys(val).length : (val ? 1 : 0));
   return `<details class="nv-sec" ${['chapters', 'framework'].includes(sec.key) ? 'open' : ''}>
-    <summary>${esc(sec.label)} <span class="nv-pill">${count}</span></summary>
+    <summary>${esc(sec.label)} <span class="nv-pill">${count}</span>${outlineSectionEmpty(sec.key, val) ? badge('空', 'warn') : ''}
+      <span class="nv-grow"></span>
+      <button class="nv-btn nv-btn-sm" data-act="${sec.key === 'chapters' ? 'outline-gen' : 'outline-ai-section'}" data-key="${esc(sec.key)}" data-label="${esc(sec.label)}">${sec.key === 'chapters' ? '规划章节' : 'AI 生成本节'}</button>
+    </summary>
     <div>${sectionBody(sec.key, val)}</div>
   </details>`;
 }
@@ -526,7 +547,7 @@ const FIELD_LABEL = {
 
 function sectionBody(key, val) {
   if (val == null || (Array.isArray(val) && !val.length) || (typeof val === 'object' && !Array.isArray(val) && !Object.keys(val).length)) {
-    return '<div class="nv-hint">（本节为空，可用「按指令优化」补全）</div>';
+    return '<div class="nv-hint">（本节为空，可用上方「AI 生成本节」或「AI 自动规划生成」补全）</div>';
   }
   if (typeof val === 'string') return `<div style="line-height:1.8;white-space:pre-wrap">${esc(val)}</div>`;
   if (!Array.isArray(val)) {
@@ -845,6 +866,113 @@ async function startOutlineGen() {
   await loadList();
 }
 
+function outlineAiSnapshot() {
+  const s = S.detail?.outline?.sections || {};
+  const empty = S.sections.filter((sec) => outlineSectionEmpty(sec.key, s[sec.key]));
+  return {
+    sections: s,
+    empty,
+    fillable: empty.filter((sec) => sec.key !== 'chapters'),
+    chaptersEmpty: outlineSectionEmpty('chapters', s.chapters),
+  };
+}
+
+function showOutlineAiReport(result) {
+  const fill = result?.fill || {};
+  const chapter = result?.chapter || {};
+  const warnings = [
+    ...(Array.isArray(fill.warnings) ? fill.warnings : []),
+    ...(Array.isArray(chapter.summary?.warnings) ? chapter.summary.warnings : []),
+  ].filter(Boolean);
+  if (!warnings.length && !fill.mocked) return;
+  const body = document.createElement('div');
+  body.innerHTML = `<div class="nv-note" style="line-height:1.8">
+    <b>规划结果</b><br>
+    章节大纲：${chapter.outline ? `v${chapter.outline.version}，规划 ${(chapter.outline.sections?.chapters || []).length} 章` : '本次未重新规划'}<br>
+    非章节分节：本次补齐 ${(fill.results || []).length} 个
+  </div>
+  ${warnings.length ? `<div class="nv-warn" style="margin-top:8px;max-height:240px;overflow:auto">${warnings.map((w) => esc(w)).join('<br>')}</div>` : ''}
+  ${fill.mocked ? '<div class="nv-note" style="margin-top:8px">当前包含离线占位内容。配置真实 LLM 后可逐节点「AI 生成本节」重做。</div>' : ''}`;
+  const m = S.ctx.modal({ title: 'AI 大纲规划结果', body, width: 560 });
+  const bar = document.createElement('div');
+  bar.className = 'nv-row';
+  bar.style.marginTop = '10px';
+  bar.innerHTML = '<button class="nv-btn nv-btn-p" data-act="modal-close">知道了</button>';
+  body.appendChild(bar);
+  bar.querySelector('[data-act="modal-close"]').onclick = () => m.close();
+}
+
+function startOutlineAiPlan() {
+  const snap = outlineAiSnapshot();
+  if (!snap.chaptersEmpty && !snap.fillable.length) {
+    toast('大纲 14 个分节都已有内容；如需重做某一节，请点该节的「AI 生成本节」', 'info');
+    return;
+  }
+  if (!llmReady()) {
+    S.ctx.confirm('当前 LLM 未就绪：章节规划可能失败，非章节分节会退回离线占位。可先到「设置」页切换 mock 或配置 API Key。仍要继续吗？').then((ok) => {
+      if (ok) openOutlineAiPlanModal(snap);
+    });
+    return;
+  }
+  openOutlineAiPlanModal(snap);
+}
+
+function openOutlineAiPlanModal(snap) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `<div class="nv-hint" style="line-height:1.8">
+    将自动完成整份大纲的缺口规划：${snap.chaptersEmpty ? '<b>先规划章节大纲</b>，' : ''}${snap.fillable.length ? `再逐节生成 ${snap.fillable.length} 个空缺分节（${snap.fillable.map((x) => esc(x.label)).join('、')}）` : '非章节分节已完整'}。
+    已有内容默认保留；结果会保存为新的版本。</div>
+    <label class="nv-f" style="margin-top:10px"><span class="nv-lbl">额外规划要求（可选）</span>
+      <textarea class="nv-area" id="nv-outline-ai-note" rows="4" placeholder="例如：前三章必须强钩子；反派第 8 章登场；每 10 章一次大反转"></textarea>
+    </label>`;
+  const m = S.ctx.modal({ title: 'AI 自动规划生成', body: wrap, width: 600 });
+  const bar = document.createElement('div');
+  bar.className = 'nv-row';
+  bar.style.marginTop = '10px';
+  bar.innerHTML = '<button class="nv-btn nv-btn-a" data-a="go">开始规划</button><button class="nv-btn" data-a="no">取消</button>';
+  wrap.appendChild(bar);
+  bar.querySelector('[data-a="no"]').onclick = () => m.close();
+  bar.querySelector('[data-a="go"]').onclick = async () => {
+    const instruction = wrap.querySelector('#nv-outline-ai-note').value.trim();
+    m.close();
+    const result = await guard(async () => {
+      let chapter = null;
+      if (snap.chaptersEmpty) {
+        chapter = await S.ctx.api.post(`/api/novels/${S.currentId}/outline`, { saveVersion: true });
+      }
+      let fill = null;
+      if (snap.fillable.length) {
+        fill = await S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/fill`, {
+          save: true,
+          onlyEmpty: true,
+          instruction,
+        });
+      }
+      return { chapter, fill };
+    }, 'AI 大纲规划已保存为新版本');
+    if (!result) return;
+    S.tab = 'outline';
+    await reloadDetail();
+    await loadList();
+    if (result.fill?.mocked) toast('已生成离线占位大纲；配置真实 LLM 后可逐节重做', 'warn');
+    showOutlineAiReport(result);
+  };
+}
+
+async function startOutlineAiSection(key, label) {
+  if (!key) return;
+  if (!llmReady() && !(await S.ctx.confirm('当前 LLM 未就绪，本节可能生成离线占位或失败。仍要继续吗？'))) return;
+  if (!(await S.ctx.confirm(`AI 将重新生成「${label}」并保存为新的大纲版本，继续？`))) return;
+  const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/section`, {
+    key,
+    save: true,
+  }));
+  if (!r) return;
+  S.tab = 'outline';
+  await reloadDetail();
+  toast(r.mocked ? `「${label}」已生成离线占位内容` : `「${label}」已生成并保存为 v${r.saved?.version || ''}`, r.mocked ? 'warn' : 'ok');
+}
+
 function optimizeOutline() {
   const wrap = document.createElement('div');
   wrap.innerHTML = `<div class="nv-hint" style="margin-bottom:6px">用中文写清要改什么，例如：前三章节奏加快；把反派提前到第 5 章登场；伏笔 F-01 提前到第 8 章回收；增加一条主角与导师的师徒线。</div>
@@ -1079,6 +1207,8 @@ async function onClickEvent(e) {
       S.form = collectForm(); S.form.ref_doc_path = ''; S.form.ref_doc_name = ''; render(); return;
     case 'tab': S.tab = el.dataset.tab; render(); return;
     case 'outline-gen': await startOutlineGen(); return;
+    case 'outline-ai-plan': startOutlineAiPlan(); return;
+    case 'outline-ai-section': await startOutlineAiSection(el.dataset.key, el.dataset.label || '大纲分节'); return;
     case 'outline-optimize': optimizeOutline(); return;
     case 'outline-append': appendOutline(); return;
     case 'write-next': await startWrite({ mode: 'next', count: 1 }); return;
