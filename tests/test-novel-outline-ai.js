@@ -85,14 +85,14 @@ run(`INSERT INTO novel_outlines(id, novel_id, version, status, payload, raw, mod
   logic: [],
 }), '', 'mock-template', 0, 0, now, now);
 
-console.log('\n=== 1. 状态：14 个分节与可补齐范围 ===');
+console.log('\n=== 1. 状态：15 个分节与可补齐范围 ===');
 let status;
-await check('状态返回 14 个分节，13 个可 AI 补齐，chapters 单独规划', async () => {
+await check('状态返回 15 个分节，14 个可 AI 补齐，chapters 单独规划', async () => {
   status = OAI.outlineAiStatus('N-OAI');
   assert.equal(status.hasOutline, true);
-  assert.equal(status.sections.length, 14);
-  assert.equal(status.missing.length, 14);
-  assert.equal(status.fillable.length, 13);
+  assert.equal(status.sections.length, 15);
+  assert.equal(status.missing.length, 15);
+  assert.equal(status.fillable.length, 14);
   assert.equal(status.fillable.includes('chapters'), false);
   assert.equal(status.sections.find((x) => x.key === 'chapters')?.empty, true);
   assert.equal(status.chapterStats.expected, 12);
@@ -102,14 +102,14 @@ await check('状态返回 14 个分节，13 个可 AI 补齐，chapters 单独�
 
 console.log('\n=== 2. 逐节补齐与规范化 ===');
 let filled;
-await check('mock 逐节补齐 13 节，全部非空且明确标记离线', async () => {
+await check('mock 逐节补齐 14 节，全部非空且明确标记离线', async () => {
   const novel = OAI.novelOf('N-OAI');
   const sections = OAI.loadSections('N-OAI');
   filled = await OAI.fillSections(novel, sections, {});
-  assert.equal(filled.requested, 13);
-  assert.equal(filled.results.length, 13);
+  assert.equal(filled.requested, 14);
+  assert.equal(filled.results.length, 14);
   assert.equal(filled.calls, 0);
-  assert.equal(filled.warnings.length, 13);
+  assert.equal(filled.warnings.length, 14);
   assert.equal(OAI.missingSectionKeys(filled.sections).length, 0);
   assert.ok(String(filled.sections.logline).includes('【离线占位】'));
   return `results=${filled.results.length}, warnings=${filled.warnings.length}`;
@@ -177,12 +177,12 @@ const server = createServer((req, res) => handle(req, res, {}));
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 
-await check('GET /outline/ai/status 路由参数可用且返回 14 节', async () => {
+await check('GET /outline/ai/status 路由参数可用且返回 15 节', async () => {
   const res = await fetch(`${base}/api/novels/N-OAI/outline/ai/status`);
   const json = await res.json();
   assert.equal(res.status, 200);
   assert.equal(json.ok, true);
-  assert.equal(json.sections.length, 14);
+  assert.equal(json.sections.length, 15);
   return `v${json.version}, sections=${json.sections.length}`;
 });
 await check('POST /outline/ai/section save=true 只覆盖指定节并新增版本', async () => {

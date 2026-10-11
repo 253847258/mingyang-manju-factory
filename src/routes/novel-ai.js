@@ -6,6 +6,7 @@ import {
   outlineAiStatus, loadSections, novelOf, fillSections, generateSection, planChapters, saveOutlineVersion,
 } from '../novel-outline-ai.js';
 import { writeLongChapter } from '../novel-writing.js';
+import { buildNovelAssets } from '../novel-assets.js';
 
 function param(ctx, name) {
   return ctx?.params && typeof ctx.params === 'object' ? ctx.params[name] : '';
@@ -36,6 +37,11 @@ export function registerNovelAiRoutes(app) {
   app.get('/api/novels/:id/outline/ai/status', async (ctx) => {
     try { ctx.json(outlineAiStatus(param(ctx, 'id'))); }
     catch (err) { throw badRequest(err.message || '读取大纲 AI 状态失败'); }
+  });
+
+  app.get('/api/novels/:id/assets', async (ctx) => {
+    try { ctx.json(buildNovelAssets(param(ctx, 'id'))); }
+    catch (err) { throw badRequest(err.message || '读取小说资产失败'); }
   });
 
   app.post('/api/novels/:id/outline/ai/section', async (ctx) => {

@@ -7,6 +7,7 @@ import { all, get, run } from './db.js';
 import { chat, llmStatus } from './llm.js';
 import { countWords } from './modules/novel.js';
 import { nowISO } from './util.js';
+import { buildNovelAssets, assetPromptBlock } from './novel-assets.js';
 
 export const CHAPTER_WRITE_MIN_WORDS = 2500;
 export const CHAPTER_WRITE_MAX_WORDS = 3500;
@@ -73,9 +74,12 @@ function buildPrompt(novel, idx, ctx, instruction = '') {
   const cast = ctx.cast.map((x) => `${x.id} ${x.name}（${x.role || '角色'}）${x.desc ? `：${x.desc}` : ''}`).join('\n') || '（暂无角色档案）';
   const locations = ctx.locations.map((x) => `${x.id || ''} ${x.name || ''}：${x.desc || ''}`).join('\n') || '（暂无地点档案）';
   const foreshadow = ctx.foreshadow.map((x) => `${x.id || ''} ${x.content || ''}（埋设第${x.setup_chapter || '?'}章，回收第${x.payoff_chapter || '?'}章）`).join('\n') || '（暂无伏笔表）';
+  const assets = buildNovelAssets(novel, ctx.sections);
   return [
     '【任务】',
     `写第 ${idx} 章正文，目标 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 个中文字符，最佳目标约 ${CHAPTER_WRITE_TARGET_WORDS} 字。`,
+    '',
+    assetPromptBlock(assets),
     '',
     '【小说参数】',
     `书名：${novel.title || ''}`,
@@ -104,9 +108,9 @@ function buildPrompt(novel, idx, ctx, instruction = '') {
     '',
     '【硬性要求】',
     `1. 只输出本章正文，不要解释、不要 Markdown、不要输出章节标题。`,
-    `2. 正文必须 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字，不能只写梗概。`,
+    `2. 最高优先级：故事大纲 > 正文内容承接 > 头尾逻辑故事线闭环；正文必须 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字，不能只写梗概。`,
     '3. 必须按本章大纲推进，不提前写完后几章的关键剧情。',
-    '4. 场景、动作、对话、心理和冲突要具体，避免空泛总结。',
+    '4. 人物、环境、物品出现时必须使用资产索引 ID 对应设定，场景、动作、对话、心理和冲突要具体。',
     '5. 结尾必须落在本章钩子上。',
   ].filter(Boolean).join('\n');
 }

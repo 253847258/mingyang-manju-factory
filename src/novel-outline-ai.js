@@ -15,6 +15,7 @@ import { all, get, run, resolveAsset } from './db.js';
 import { nowISO, rid } from './util.js';
 import { chatJSON, llmStatus } from './llm.js';
 import { syncChapterSkeletons } from './modules/novel.js';
+import { buildNovelAssets, assetPromptBlock } from './novel-assets.js';
 
 export const OUTLINE_AI_MAX_REF_CHARS = 12000;
 export const OUTLINE_AI_MAX_ITEMS = 120;
@@ -48,6 +49,24 @@ export const OUTLINE_AI_SECTIONS = [
       for (const k of ['core_conflict', 'protagonist_goal', 'antagonist_force', 'three_acts', 'theme', 'opening_image', 'ending']) {
         const s = TEXT(o[k], 300);
         if (s) out[k] = s;
+      }
+      return out;
+    },
+  },
+  {
+    key: 'storyline',
+    label: '头尾逻辑与故事线',
+    shape: '对象 {"opening_logic":"开篇如何立住主角/冲突/钩子","story_chain":["按顺序的关键因果"],"turning_points":["重大转折"],"ending_logic":"结局如何回收主线","head_tail_closure":"开头元素如何在结尾闭环","final_image":"最终画面"}',
+    normalize: (v) => {
+      const o = v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+      const out = {};
+      for (const k of ['opening_logic', 'ending_logic', 'head_tail_closure', 'final_image']) {
+        const s = MULTI(o[k], 800);
+        if (s) out[k] = s;
+      }
+      for (const k of ['story_chain', 'turning_points']) {
+        const list = (Array.isArray(o[k]) ? o[k] : []).map((x) => TEXT(x, 240)).filter(Boolean).slice(0, 30);
+        if (list.length) out[k] = list;
       }
       return out;
     },
@@ -215,6 +234,7 @@ export const OUTLINE_AI_DEFAULT_KEYS = OUTLINE_AI_SECTIONS.map((s) => s.key).fil
 export const OUTLINE_AI_STATUS_SECTIONS = [
   'logline',
   'framework',
+  'storyline',
   'worldview',
   'volumes',
   'chapters',
@@ -292,6 +312,7 @@ function contextOf(novel, sections) {
   return {
     cast,
     castByName: new Map(cast.map((c) => [c.name, c])),
+    assets: buildNovelAssets(novel, sections),
     existingIds,
     nextLocationSeq: locSeqs.length ? Math.max(...locSeqs) + 1 : 1,
     chapterMax: chapterBudget(novel, sections),
@@ -383,6 +404,8 @@ function buildChapterPrompt(novel = {}, sections = {}, idx, { instruction = '', 
     `基调：${TEXT(novel.tone, 40)}　视角：${TEXT(novel.pov, 40)}`,
     `总章数：${c.chapterMax}　目标：${Number(novel.target_words) || 0} 字 / 单章 ${Number(novel.chapter_words) || 0} 字`,
     '',
+    assetPromptBlock(c.assets),
+    '',
     '【本次指定章节】',
     `第 ${n} 章（必须只规划这一章，idx 必须等于 ${n}）`,
     `当前内容：${JSON.stringify(row).slice(0, 1600)}`,
@@ -406,7 +429,7 @@ function buildChapterPrompt(novel = {}, sections = {}, idx, { instruction = '', 
     '',
     '只输出 JSON，形如：',
     '{"chapter":{"idx":1,"volume":1,"title":"","summary":"","events":[""],"hook":"","cliffhanger":"","characters":["C-0001"],"locations":["L-0001"],"pov":"","foreshadow":["FS-01"]}}',
-    `硬约束：summary 必须是 ${OUTLINE_AI_CHAPTER_MIN_CHARS}-${OUTLINE_AI_CHAPTER_MAX_CHARS} 个中文字符的详细章节大纲，写清起因、推进、转折、结果和本章作用；events 4-8 条；章末必须给钩子；不要输出解释。`,
+    `硬约束：summary 必须是 ${OUTLINE_AI_CHAPTER_MIN_CHARS}-${OUTLINE_AI_CHAPTER_MAX_CHARS} 个中文字符，优先服务故事大纲、正文承接和头尾逻辑故事线；人物/环境/物品必须带资产索引 ID；events 4-8 条；章末必须给钩子；不要输出解释。`,
   ].filter(Boolean).join('\n');
 }
 
@@ -581,6 +604,8 @@ export function buildSectionPrompt(novel = {}, sections = {}, key, { instruction
     `规模：目标 ${Number(novel.target_words) || 0} 字 / 单章 ${Number(novel.chapter_words) || 0} 字 / 共 ${chapterN} 章 / ${Number(novel.seasons) || 1} 季`,
     `角色规模：${Number(novel.cast_size) || 0} 人`,
     '',
+    assetPromptBlock(c.assets),
+    '',
     '【可用角色（只能用这些编号）】',
     castLines,
     '',
@@ -594,7 +619,7 @@ export function buildSectionPrompt(novel = {}, sections = {}, key, { instruction
     '',
     `【本次只需生成这一节】${spec.label}`,
     `输出结构：${spec.shape}`,
-    `硬约束：章号必须在 1..${chapterN} 之间；人物只用上面给出的编号；地点用 L-0001 起递增且不得与已有重复；不要输出解释文字。`,
+    `硬约束：故事优先级=故事大纲 > 正文内容承接 > 头尾逻辑故事线闭环；章号必须在 1..${chapterN} 之间；人物/环境/物品必须使用资产索引 ID；不要输出解释文字。`,
     refText ? `参考范本（仅供风格与桥段参考，不要照抄）：${refText.slice(0, 6000)}` : '',
     instruction ? `额外要求：${TEXT(instruction, 500)}` : '',
     '',
@@ -610,6 +635,7 @@ const AI_SYSTEM = [
   '3. 人物必须使用给定的 C-xxxx / CX-xxxx 编号，地点用 L-0001 递增；',
   '4. 所有章号必须落在给定范围内；伏笔的回收章必须晚于埋设章；',
   '5. 中文输出，内容具体可执行（不要"待补充""略"这类占位）。',
+  '6. 最高优先级：先服从故事大纲，再保证正文内容承接，最后校验头尾逻辑与故事线闭环；人物、环境、物品必须使用资产索引中的 ID。',
 ].join('\n');
 
 // 离线/mock 占位内容：保证结构完整、标注清楚，便于先跑通
@@ -632,6 +658,19 @@ export function buildMockSection(novel = {}, sections = {}, key, ctx = null) {
         theme: `${tag}在极端处境下仍要守住的选择`,
         opening_image: `${tag}用一个反常画面把主角推进事件`,
         ending: `${tag}主角付出代价达成目标，留下余味`,
+      };
+    case 'storyline':
+      return {
+        opening_logic: `${tag}开篇用主角最迫切的目标和第一个强钩子抓住读者`,
+        story_chain: [
+          `${tag}开篇事件导致主角入局`,
+          `${tag}主角反击导致对手升级`,
+          `${tag}代价迫使主角做出最终选择`,
+        ],
+        turning_points: [`${tag}中盘反转`, `${tag}终局代价`],
+        ending_logic: `${tag}结局回收主线目标，完成人物弧光`,
+        head_tail_closure: `${tag}开篇出现的核心信物在结局再次出现并完成闭环`,
+        final_image: `${tag}主角站在终局场景中，回望开篇画面`,
       };
     case 'worldview':
       return {

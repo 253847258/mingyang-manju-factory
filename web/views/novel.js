@@ -40,6 +40,19 @@ const CSS = `
 .nv-badge-warn{border-color:var(--warn,#f0b060);color:var(--warn,#f0b060)}
 .nv-badge-err{border-color:var(--err,#f06060);color:var(--err,#f06060)}
 .nv-badge-acc{border-color:var(--accent,#6c8cff);color:var(--accent,#6c8cff)}
+.nv-asset-bar{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:8px;margin-top:8px}
+.nv-asset-col{background:var(--panel-2,#1e1e28);border:1px solid var(--line,#2a2a36);border-radius:8px;padding:7px 8px;min-width:0}
+.nv-asset-col>b{font-size:11.5px;display:block;margin-bottom:5px}
+.nv-asset-list{display:flex;gap:5px;flex-wrap:wrap;max-height:76px;overflow:auto}
+.nv-asset-chip{display:inline-flex;gap:4px;align-items:center;border:1px solid var(--line,#2a2a36);border-radius:6px;padding:2px 6px;background:var(--panel,#16161d);cursor:pointer;font-size:11.5px;max-width:100%}
+.nv-asset-chip:hover{border-color:var(--accent,#6c8cff)}
+.nv-asset-chip b{white-space:nowrap;font-size:11px}
+.nv-asset-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nv-asset-c b{color:#6c8cff}.nv-asset-e b{color:#48d1a0}.nv-asset-p b{color:#f0b060}
+.nv-id{padding:0 3px;border-radius:4px;font-weight:700;font-size:.92em}
+.nv-id-c{background:rgba(108,140,255,.16);color:#9eb1ff}
+.nv-id-e{background:rgba(72,209,160,.14);color:#74e0b8}
+.nv-id-p{background:rgba(240,176,96,.14);color:#f3c57f}
 .nv-bar{height:6px;border-radius:99px;background:var(--panel-2,#1e1e28);overflow:hidden;flex:1;min-width:80px}
 .nv-bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent,#6c8cff),var(--accent-2,#48d1a0))}
 .nv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:6px;max-height:230px;overflow:auto;padding:2px}
@@ -90,6 +103,7 @@ const CSS = `
 .nv-pill{font-size:11px;padding:1px 6px;border-radius:6px;background:var(--panel-2,#1e1e28);border:1px solid var(--line,#2a2a36);color:var(--muted,#8b8b9c)}
 .nv-preview{white-space:pre-wrap;font-size:11.5px;line-height:1.6;color:var(--muted,#8b8b9c);max-height:120px;overflow:auto;background:var(--bg,#0f0f14);border:1px solid var(--line,#2a2a36);border-radius:8px;padding:6px 8px}
 @media(max-width:1080px){.nv-wrap{flex-direction:column}.nv-side{width:auto;flex:0 0 auto;max-height:230px}}
+@media(max-width:860px){.nv-asset-bar{grid-template-columns:1fr}}
 `;
 
 const POV_FALLBACK = [
@@ -119,6 +133,7 @@ const S = {
   novels: [], q: '',
   view: 'empty',            // empty | create | workspace
   currentId: null, detail: null,
+  assets: null,
   tab: 'params',
   genres: [], categories: [], povs: POV_FALLBACK, tones: TONE_FALLBACK, sections: OUTLINE_SECTIONS_FALLBACK, limits: null,
   genreCat: '全部', genreQ: '',
@@ -132,6 +147,12 @@ const S = {
 // ---------------- 工具 ----------------
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function highlightIds(s) {
+  return esc(s).replace(/([CLP]-[A-Z0-9-]+)/gi, (id) => {
+    const kind = id[0].toUpperCase() === 'C' ? 'c' : (id[0].toUpperCase() === 'L' ? 'e' : 'p');
+    return `<span class="nv-id nv-id-${kind}">${id.toUpperCase()}</span>`;
+  });
 }
 const num = (v, d = 0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
 const fmtWords = (n) => (num(n) >= 10000 ? `${(num(n) / 10000).toFixed(1)} 万字` : `${num(n)} 字`);
@@ -205,7 +226,11 @@ async function loadMeta() {
   S.categories = Array.isArray(m.genreCategories) && m.genreCategories.length ? m.genreCategories : [...new Set(S.genres.map((g) => g.cat))];
   S.povs = Array.isArray(m.povs) && m.povs.length ? m.povs : POV_FALLBACK;
   S.tones = Array.isArray(m.tones) && m.tones.length ? m.tones : TONE_FALLBACK;
-  S.sections = Array.isArray(m.outlineSections) && m.outlineSections.length ? m.outlineSections : OUTLINE_SECTIONS_FALLBACK;
+  const baseSections = Array.isArray(m.outlineSections) && m.outlineSections.length ? m.outlineSections : OUTLINE_SECTIONS_FALLBACK;
+  const sections = baseSections.some((x) => x.key === 'storyline')
+    ? baseSections
+    : [...baseSections.slice(0, 2), { key: 'storyline', label: '头尾逻辑与故事线' }, ...baseSections.slice(2)];
+  S.sections = sections;
   if (m.limits) S.limits = { castSize: m.limits.castSize || limits().castSize, chapterWords: m.limits.chapterWords || limits().chapterWords, targetWords: m.limits.targetWords || limits().targetWords };
   if (m.scales) S.scales = m.scales;
   if (m.llm) S.llm = m.llm;
@@ -227,7 +252,12 @@ async function loadActors() {
 }
 
 async function openNovel(id) {
-  S.detail = await S.ctx.api.get(`/api/novels/${id}`);
+  const [detail, assets] = await Promise.all([
+    S.ctx.api.get(`/api/novels/${id}`),
+    S.ctx.api.get(`/api/novels/${id}/assets`).catch(() => ({ characters: [], environments: [], props: [] })),
+  ]);
+  S.detail = detail;
+  S.assets = assets;
   S.currentId = id;
   S.view = 'workspace';
   if (S.detail.llm) S.llm = S.detail.llm;
@@ -239,7 +269,12 @@ async function openNovel(id) {
 
 async function reloadDetail() {
   if (!S.currentId) return;
-  S.detail = await S.ctx.api.get(`/api/novels/${S.currentId}`);
+  const [detail, assets] = await Promise.all([
+    S.ctx.api.get(`/api/novels/${S.currentId}`),
+    S.ctx.api.get(`/api/novels/${S.currentId}/assets`).catch(() => ({ characters: [], environments: [], props: [] })),
+  ]);
+  S.detail = detail;
+  S.assets = assets;
   if (S.detail.llm) S.llm = S.detail.llm;
   if (S.detail.novel) applyFormFromNovel(S.detail.novel);
   render();
@@ -459,9 +494,44 @@ function workspaceHtml() {
         ${S.detail.outline ? `<span class="nv-pill">大纲 v${S.detail.outline.version}｜${esc(S.detail.outline.model || '')}｜规划 ${(S.detail.outline.sections?.chapters || []).length} 章</span>` : '<span class="nv-hint">尚未生成大纲</span>'}
       </div>
       ${jobBarHtml()}
+      ${assetIndexHtml()}
       <div class="nv-tabs" style="margin-top:10px">${tabs.map(([k, label]) => `<button class="nv-tab ${S.tab === k ? 'nv-on' : ''}" data-act="tab" data-tab="${k}">${esc(label)}</button>`).join('')}</div>
     </div>
     ${S.tab === 'params' ? formHtml('edit') : S.tab === 'outline' ? outlineHtml() : S.tab === 'chapters' ? chaptersHtml() : exportHtml()}`;
+}
+
+function assetIndexHtml() {
+  const a = S.assets || {};
+  const groups = [
+    ['character', '人物', a.characters || []],
+    ['environment', '环境', a.environments || []],
+    ['prop', '物品', a.props || []],
+  ];
+  if (!groups.some(([, , rows]) => rows.length)) return '';
+  return `<div class="nv-asset-bar">
+    ${groups.map(([kind, label, rows]) => `<div class="nv-asset-col">
+      <b>${label}资产 ${rows.length}</b>
+      <div class="nv-asset-list">${rows.length ? rows.map((x) => {
+        const cls = kind === 'character' ? 'c' : (kind === 'environment' ? 'e' : 'p');
+        return `<button class="nv-asset-chip nv-asset-${cls}" data-act="asset-view" data-kind="${kind}" data-id="${esc(x.id)}"><b>${esc(x.id)}</b><span>${esc(x.name)}</span></button>`;
+      }).join('') : '<span class="nv-hint">暂无</span>'}</div>
+    </div>`).join('')}
+  </div>`;
+}
+
+function showAsset(asset) {
+  if (!asset) return;
+  const body = document.createElement('div');
+  body.innerHTML = `<div class="nv-note" style="line-height:1.8"><b>${esc(asset.id)}</b>　${esc(asset.name)}<br>
+    <span class="nv-muted">类型：${asset.kind === 'character' ? '人物' : asset.kind === 'environment' ? '环境' : '物品'}｜定位：${esc(asset.role || '—')}｜来源：${esc(asset.source || '—')}</span></div>
+    ${asset.desc ? `<div style="margin-top:10px;line-height:1.9;white-space:pre-wrap">${highlightIds(asset.desc)}</div>` : '<div class="nv-hint" style="margin-top:10px">暂无详细描述</div>'}`;
+  const m = S.ctx.modal({ title: '资产 ID 详情', body, width: 620 });
+  const bar = document.createElement('div');
+  bar.className = 'nv-row';
+  bar.style.marginTop = '10px';
+  bar.innerHTML = '<button class="nv-btn nv-btn-p" data-a="close">关闭</button>';
+  body.appendChild(bar);
+  bar.querySelector('[data-a="close"]').onclick = () => m.close();
 }
 
 function jobBarHtml() {
@@ -565,7 +635,9 @@ function sectionHtml(sec, val) {
 
 const KV_LABEL = {
   core_conflict: '核心冲突', protagonist_goal: '主角目标', antagonist_force: '对立力量', three_acts: '三幕结构',
-  theme: '主题内核', opening_image: '开篇画面', ending: '结局走向', era: '时代背景', rules: '世界规则',
+  theme: '主题内核', opening_image: '开篇画面', ending: '结局走向', opening_logic: '开篇逻辑',
+  story_chain: '故事因果链', turning_points: '重大转折', ending_logic: '结局逻辑',
+  head_tail_closure: '头尾闭环', final_image: '最终画面', era: '时代背景', rules: '世界规则',
   power_system: '力量体系', taboos: '禁忌', text: '内容',
 };
 const FIELD_LABEL = {
@@ -582,9 +654,9 @@ function sectionBody(key, val) {
   if (val == null || (Array.isArray(val) && !val.length) || (typeof val === 'object' && !Array.isArray(val) && !Object.keys(val).length)) {
     return '<div class="nv-hint">（本节为空，可用上方「AI 生成本节」或「AI 自动规划生成」补全）</div>';
   }
-  if (typeof val === 'string') return `<div style="line-height:1.8;white-space:pre-wrap">${esc(val)}</div>`;
+  if (typeof val === 'string') return `<div style="line-height:1.8;white-space:pre-wrap">${highlightIds(val)}</div>`;
   if (!Array.isArray(val)) {
-    const rows = Object.entries(val).map(([k, v]) => `<dt>${esc(KV_LABEL[k] || k)}</dt><dd>${Array.isArray(v) ? v.map((x) => esc(typeof x === 'object' ? JSON.stringify(x) : x)).join('<br>') : esc(typeof v === 'object' ? JSON.stringify(v) : v)}</dd>`).join('');
+    const rows = Object.entries(val).map(([k, v]) => `<dt>${esc(KV_LABEL[k] || k)}</dt><dd>${Array.isArray(v) ? v.map((x) => highlightIds(typeof x === 'object' ? JSON.stringify(x) : x)).join('<br>') : highlightIds(typeof v === 'object' ? JSON.stringify(v) : v)}</dd>`).join('');
     return `<dl class="nv-kv">${rows}</dl>`;
   }
   if (!val.length) return '<div class="nv-hint">（空）</div>';
@@ -605,8 +677,8 @@ function sectionBody(key, val) {
 
 function cellVal(v, key, i) {
   if (v == null || v === '') return key === 'idx' || key === 'chapter' ? String(i + 1) : '<span class="nv-muted">—</span>';
-  if (Array.isArray(v)) return v.map((x) => esc(typeof x === 'object' ? JSON.stringify(x) : x)).join('、') || '<span class="nv-muted">—</span>';
-  return esc(v);
+  if (Array.isArray(v)) return v.map((x) => highlightIds(typeof x === 'object' ? JSON.stringify(x) : x)).join('、') || '<span class="nv-muted">—</span>';
+  return highlightIds(v);
 }
 
 function chaptersOutlineTable(chs) {
@@ -642,7 +714,7 @@ function showChapterOutline(idx) {
     <span class="nv-pill">大纲 ${summary.length} 字</span>
     ${summary.length < CHAPTER_OUTLINE_MIN_CHARS ? badge('低于 2500 字', 'warn') : badge('长度达标', 'ok')}
   </div>
-  <div style="margin-top:10px;line-height:1.9;white-space:pre-wrap;max-height:62vh;overflow:auto;font-size:13px">${esc(summary || '（本章大纲为空）')}</div>
+  <div style="margin-top:10px;line-height:1.9;white-space:pre-wrap;max-height:62vh;overflow:auto;font-size:13px">${highlightIds(summary || '（本章大纲为空）')}</div>
   ${(c.events || []).length ? `<div class="nv-note" style="margin-top:10px"><b>关键事件：</b>${c.events.map((x) => esc(x)).join('；')}</div>` : ''}
   ${(c.cliffhanger || c.hook) ? `<div class="nv-note" style="margin-top:8px"><b>章末钩子：</b>${esc(c.cliffhanger || c.hook)}</div>` : ''}`;
   const m = S.ctx.modal({ title: `第 ${num(c.idx, 0)} 章大纲`, body, width: 760 });
@@ -711,7 +783,7 @@ function readerHtml() {
     ${S.editing
       ? `<textarea class="nv-area" id="nv-content" data-role="content" rows="22" style="min-height:46vh">${esc(c.content || '')}</textarea>
          <div class="nv-hint" id="nv-content-count">当前 ${fmtWords(c.words || 0)}（目标 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字）</div>`
-      : (hasContent ? `<div class="nv-read" id="nv-read">${paras.map((p) => `<p>${esc(p)}</p>`).join('')}</div>`
+      : (hasContent ? `<div class="nv-read" id="nv-read">${paras.map((p) => `<p>${highlightIds(p)}</p>`).join('')}</div>`
         : `<div class="nv-empty">本章尚未写作<br><span class="nv-hint">点上方「↻ 重写」或章节列表的「写作」按钮，按 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字生成本章</span></div>`)}
   </div>`;
 }
@@ -1312,6 +1384,12 @@ async function onClickEvent(e) {
     case 'cancel-edit': S.tab = 'params'; S.form = applyFormFromNovel(S.detail.novel) || S.form; render(); return;
     case 'refresh': await guard(loadList, '已刷新'); render(); return;
     case 'refresh-detail': await guard(reloadDetail, '已刷新'); return;
+    case 'asset-view': {
+      const kind = el.dataset.kind;
+      const rows = kind === 'character' ? S.assets?.characters : kind === 'environment' ? S.assets?.environments : S.assets?.props;
+      showAsset((rows || []).find((x) => x.id === el.dataset.id));
+      return;
+    }
     case 'open': await guard(() => openNovel(el.dataset.id)); return;
     case 'del-novel': {
       const id = el.dataset.id;
