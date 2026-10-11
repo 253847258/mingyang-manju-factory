@@ -601,6 +601,8 @@ function chapterPlanComplete(c) {
     c
     && !c._placeholder
     && String(c.title || '').trim()
+    && String(c.start_state || '').trim()
+    && String(c.end_state || '').trim()
     && len >= CHAPTER_OUTLINE_MIN_CHARS
     && len <= CHAPTER_OUTLINE_MAX_CHARS,
   );
@@ -628,6 +630,7 @@ function sectionHtml(sec, val) {
     <summary>${esc(sec.label)} <span class="nv-pill">${count}</span>${outlineSectionEmpty(sec.key, val) ? badge('空', 'warn') : ''}
       <span class="nv-grow"></span>
       <button class="nv-btn nv-btn-sm" data-act="${sec.key === 'chapters' ? 'outline-ai-chapters' : 'outline-ai-section'}" data-key="${esc(sec.key)}" data-label="${esc(sec.label)}">${sec.key === 'chapters' ? '指定章节规划' : 'AI 生成本节'}</button>
+      ${sec.key === 'chapters' ? '<button class="nv-btn nv-btn-sm nv-btn-a" data-act="outline-ai-chapters-all" title="从第 1 章到最后一章逐章重写，并写入章首/章末/上下文衔接">一键全部重写</button>' : ''}
     </summary>
     <div>${sectionBody(sec.key, val)}</div>
   </details>`;
@@ -692,6 +695,7 @@ function chaptersOutlineTable(chs) {
       <td>${esc(c.title || '')}</td>
       <td style="max-width:480px">
         <div style="line-height:1.6">${esc(preview || '—')}</div>
+        <div class="nv-note" style="margin-top:6px;line-height:1.6"><b>章首：</b>${highlightIds(String(c.start_state || '').slice(0, 120) || '—')}<br><b>章末：</b>${highlightIds(String(c.end_state || '').slice(0, 120) || '—')}</div>
         <div class="nv-hint">大纲 ${summary.length} 字${c._placeholder ? ' ' + badge('待补全', 'warn') : (short ? ' ' + badge('不足 2500 字', 'warn') : '')}</div>
       </td>
       <td class="nv-muted">${esc((c.characters || []).join('、') || '—')}<br>${esc((c.locations || []).join('、') || '')}</td>
@@ -715,6 +719,10 @@ function showChapterOutline(idx) {
     ${summary.length < CHAPTER_OUTLINE_MIN_CHARS ? badge('低于 2500 字', 'warn') : badge('长度达标', 'ok')}
   </div>
   <div style="margin-top:10px;line-height:1.9;white-space:pre-wrap;max-height:62vh;overflow:auto;font-size:13px">${highlightIds(summary || '（本章大纲为空）')}</div>
+  <div class="nv-note" style="margin-top:10px;line-height:1.8"><b>章首承接：</b>${highlightIds(c.start_state || '（未规划）')}</div>
+  <div class="nv-note" style="margin-top:8px;line-height:1.8"><b>章末落点：</b>${highlightIds(c.end_state || '（未规划）')}</div>
+  <div class="nv-note" style="margin-top:8px;line-height:1.8"><b>进入本章：</b>${highlightIds(c.handoff_in || '（未规划）')}<br><b>交给下一章：</b>${highlightIds(c.handoff_out || '（未规划）')}</div>
+  <div class="nv-note" style="margin-top:8px;line-height:1.8"><b>故事线锚点：</b>${highlightIds(c.storyline_anchor || '（未规划）')}</div>
   ${(c.events || []).length ? `<div class="nv-note" style="margin-top:10px"><b>关键事件：</b>${c.events.map((x) => esc(x)).join('；')}</div>` : ''}
   ${(c.cliffhanger || c.hook) ? `<div class="nv-note" style="margin-top:8px"><b>章末钩子：</b>${esc(c.cliffhanger || c.hook)}</div>` : ''}`;
   const m = S.ctx.modal({ title: `第 ${num(c.idx, 0)} 章大纲`, body, width: 760 });
@@ -1176,6 +1184,37 @@ function openChapterAiPlan({ from = 1, to = null, onlyEmptyDefault = true } = {}
   };
 }
 
+async function rewriteAllChapterPlans() {
+  const rows = S.detail?.outline?.sections?.chapters || [];
+  const stats = chapterPlanStatsLocal(rows, S.detail?.novel);
+  if (!stats.expected) { toast('当前没有可规划的章节', 'err'); return; }
+  if (!(await S.ctx.confirm(`将从第 1 章到第 ${stats.expected} 章全部重写，严格规划章首状态、章末落点、上下文衔接和故事线锚点。共 ${Math.ceil(stats.expected / 20)} 批，可能产生大量 LLM 费用，继续？`))) return;
+  let result = null;
+  const collected = [];
+  const r = await guard(async () => {
+    for (let from = 1; from <= stats.expected; from += 20) {
+      const to = Math.min(stats.expected, from + 19);
+      result = await S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/chapters`, {
+        from,
+        to,
+        onlyEmpty: false,
+        save: true,
+        maxCalls: 20,
+        instruction: '整章大纲必须从章首状态推进到章末状态，承上启下，并与整条故事线、重大转折和结局逻辑一致。',
+      });
+      collected.push(...(result.results || []));
+    }
+    return { ...result, results: collected };
+  });
+  if (!r) return;
+  toast(`全部章节大纲已重写：${r.results?.length || 0} 章`, 'ok');
+  S.tab = 'outline';
+  await reloadDetail();
+  await loadList();
+  if (r.mocked) toast('全部章节已生成离线占位大纲', 'warn');
+  showOutlineAiReport({ chapterPlan: r });
+}
+
 function optimizeOutline() {
   const wrap = document.createElement('div');
   wrap.innerHTML = `<div class="nv-hint" style="margin-bottom:6px">用中文写清要改什么，例如：前三章节奏加快；把反派提前到第 5 章登场；伏笔 F-01 提前到第 8 章回收；增加一条主角与导师的师徒线。</div>
@@ -1440,6 +1479,7 @@ async function onClickEvent(e) {
     case 'outline-gen': await startOutlineGen(); return;
     case 'outline-ai-plan': startOutlineAiPlan(); return;
     case 'outline-ai-chapters': openChapterAiPlan(); return;
+    case 'outline-ai-chapters-all': rewriteAllChapterPlans(); return;
     case 'outline-ai-chapter': openChapterAiPlan({ from: idx, to: idx, onlyEmptyDefault: false }); return;
     case 'outline-chapter-view': showChapterOutline(idx); return;
     case 'outline-ai-section': await startOutlineAiSection(el.dataset.key, el.dataset.label || '大纲分节'); return;

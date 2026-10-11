@@ -325,6 +325,8 @@ export function chapterPlanComplete(chapter) {
     chapter
     && !chapter._placeholder
     && TEXT(chapter.title, 120)
+    && TEXT(chapter.start_state, 1000)
+    && TEXT(chapter.end_state, 1000)
     && summary.length >= OUTLINE_AI_CHAPTER_MIN_CHARS
     && summary.length <= OUTLINE_AI_CHAPTER_MAX_CHARS,
   );
@@ -410,11 +412,14 @@ function buildChapterPrompt(novel = {}, sections = {}, idx, { instruction = '', 
     `第 ${n} 章（必须只规划这一章，idx 必须等于 ${n}）`,
     `当前内容：${JSON.stringify(row).slice(0, 1600)}`,
     `前一章：${prev ? `第${prev.idx}章 ${TEXT(prev.title, 60)}：${TEXT(prev.summary, 240)}` : '（无）'}`,
+    `前一章章末落点：${TEXT(prev?.end_state, 300) || '（无）'}`,
     `后一章：${next ? `第${next.idx}章 ${TEXT(next.title, 60)}：${TEXT(next.summary, 240)}` : '（无）'}`,
+    `后一章章首承接：${TEXT(next?.start_state, 300) || '（无）'}`,
     '',
     '【既有故事框架】',
     framework,
     `一句话故事：${TEXT(sections.logline, 160) || '（无）'}`,
+    `头尾逻辑与故事线：${sections.storyline && typeof sections.storyline === 'object' ? JSON.stringify(sections.storyline).slice(0, 1600) : '（无）'}`,
     '',
     '【可用角色（只能用这些编号或姓名）】',
     castLines,
@@ -428,8 +433,8 @@ function buildChapterPrompt(novel = {}, sections = {}, idx, { instruction = '', 
     instruction ? `\n【额外要求】\n${TEXT(instruction, 500)}` : '',
     '',
     '只输出 JSON，形如：',
-    '{"chapter":{"idx":1,"volume":1,"title":"","summary":"","events":[""],"hook":"","cliffhanger":"","characters":["C-0001"],"locations":["L-0001"],"pov":"","foreshadow":["FS-01"]}}',
-    `硬约束：summary 必须是 ${OUTLINE_AI_CHAPTER_MIN_CHARS}-${OUTLINE_AI_CHAPTER_MAX_CHARS} 个中文字符，优先服务故事大纲、正文承接和头尾逻辑故事线；人物/环境/物品必须带资产索引 ID；events 4-8 条；章末必须给钩子；不要输出解释。`,
+    '{"chapter":{"idx":1,"volume":1,"title":"","start_state":"","summary":"","end_state":"","handoff_in":"","handoff_out":"","storyline_anchor":"","events":[""],"hook":"","cliffhanger":"","characters":["C-0001"],"locations":["L-0001"],"pov":"","foreshadow":["FS-01"]}}',
+    `硬约束：summary 必须是 ${OUTLINE_AI_CHAPTER_MIN_CHARS}-${OUTLINE_AI_CHAPTER_MAX_CHARS} 个中文字符，且必须写清本章从章首状态如何推进到章末状态，不能只写开头；start_state 必须承接前一章 end_state；end_state 必须能自然衔接下一章 start_state；handoff_in/handoff_out 写清具体文件、人物、情绪、冲突或物件的交接；storyline_anchor 必须对应整条故事线、重大转折和结局逻辑；人物/环境/物品必须带资产索引 ID；events 4-8 条；章末必须给钩子；不要输出解释。`,
   ].filter(Boolean).join('\n');
 }
 
@@ -460,6 +465,11 @@ export function buildMockChapterPlan(novel = {}, sections = {}, idx, ctx = null)
     events: [`${tag}主角调查线索`, `${tag}对手升级施压`, `${tag}关键人物做出选择`, `${tag}章末留下新危机`],
     hook: `${tag}一个反常细节指向更大的秘密`,
     cliffhanger: `${tag}主角刚拿到线索，就发现线索本身是陷阱`,
+    start_state: `${tag}主角承接上一章落点，带着未解决的问题进入本章`,
+    end_state: `${tag}主角拿到新线索但付出代价，状态推进到下一章`,
+    handoff_in: `${tag}上一章结尾的线索直接触发本章开场行动`,
+    handoff_out: `${tag}本章章末把新问题交给下一章`,
+    storyline_anchor: `${tag}对应主线因果链中的推进节点，服务于最终结局`,
     characters: cast,
     locations,
     pov: cast[0] || '',
@@ -483,6 +493,11 @@ export function normalizeChapterPlan(raw, ctx, idx) {
     events: (Array.isArray(o.events) ? o.events : []).map((x) => TEXT(x, 220)).filter(Boolean).slice(0, 12),
     hook: TEXT(o.hook, 240),
     cliffhanger: TEXT(o.cliffhanger || o.hook, 320),
+    start_state: MULTI(o.start_state, 500),
+    end_state: MULTI(o.end_state, 500),
+    handoff_in: MULTI(o.handoff_in, 400),
+    handoff_out: MULTI(o.handoff_out, 400),
+    storyline_anchor: MULTI(o.storyline_anchor, 500),
     characters: STR_LIST(o.characters, 20),
     locations: STR_LIST(o.locations, 20),
     pov: TEXT(o.pov, 60),

@@ -48,17 +48,20 @@ function castOf(novel) {
 
 function contextOf(novel, idx) {
   const sections = latestOutline(novel.id);
+  const plans = new Map((Array.isArray(sections.chapters) ? sections.chapters : []).map((x) => [Number(x.idx), x]));
   const plan = planOf(sections, idx);
   const previous = all(
     'SELECT idx, title, summary, content FROM novel_chapters WHERE novel_id = ? AND idx < ? ORDER BY idx DESC LIMIT 3',
     novel.id, idx,
-  ).reverse();
+  ).reverse().map((x) => ({ ...x, ...(plans.get(Number(x.idx)) || {}) }));
   const next = get('SELECT idx, title, summary FROM novel_chapters WHERE novel_id = ? AND idx = ?', novel.id, idx + 1);
+  const nextPlan = next ? { ...next, ...(plans.get(Number(next.idx)) || {}) } : null;
   return {
     sections,
+    storyline: sections.storyline || {},
     plan,
     previous,
-    next,
+    next: nextPlan,
     cast: castOf(novel),
     locations: Array.isArray(sections.locations) ? sections.locations.slice(0, 80) : [],
     foreshadow: Array.isArray(sections.foreshadow) ? sections.foreshadow.slice(0, 100) : [],
@@ -69,12 +72,13 @@ function buildPrompt(novel, idx, ctx, instruction = '') {
   const p = ctx.plan || {};
   const prevText = ctx.previous.map((x) => {
     const tail = clean(x.content).slice(-360);
-    return `第${x.idx}章《${x.title || ''}》\n摘要：${x.summary || ''}\n正文结尾：${tail || '（未写）'}`;
+    return `第${x.idx}章《${x.title || ''}》\n本章章首：${x.start_state || '（无）'}\n本章章末：${x.end_state || '（无）'}\n下一章承接：${x.handoff_out || '（无）'}\n摘要：${x.summary || ''}\n正文结尾：${tail || '（未写）'}`;
   }).join('\n\n') || '（这是第一章或前面没有正文）';
   const cast = ctx.cast.map((x) => `${x.id} ${x.name}（${x.role || '角色'}）${x.desc ? `：${x.desc}` : ''}`).join('\n') || '（暂无角色档案）';
   const locations = ctx.locations.map((x) => `${x.id || ''} ${x.name || ''}：${x.desc || ''}`).join('\n') || '（暂无地点档案）';
   const foreshadow = ctx.foreshadow.map((x) => `${x.id || ''} ${x.content || ''}（埋设第${x.setup_chapter || '?'}章，回收第${x.payoff_chapter || '?'}章）`).join('\n') || '（暂无伏笔表）';
   const assets = buildNovelAssets(novel, ctx.sections);
+  const storyline = ctx.storyline || {};
   return [
     '【任务】',
     `写第 ${idx} 章正文，目标 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 个中文字符，最佳目标约 ${CHAPTER_WRITE_TARGET_WORDS} 字。`,
@@ -94,7 +98,14 @@ function buildPrompt(novel, idx, ctx, instruction = '') {
     '',
     '【前一章与上下文】',
     prevText,
-    ctx.next ? `【下一章已知信息】第${ctx.next.idx}章 ${ctx.next.title || ''}：${ctx.next.summary || ''}` : '',
+    `【本章章首承接】${p.start_state || '（无，必须从上一章章末自然开始）'}`,
+    `【本章章末落点】${p.end_state || '（无）'}`,
+    `【与上一章衔接】${p.handoff_in || '（无）'}`,
+    `【交给下一章】${p.handoff_out || '（无）'}`,
+    ctx.next ? `【下一章已知信息】第${ctx.next.idx}章 ${ctx.next.title || ''}\n下一章章首：${ctx.next.start_state || '（无）'}\n下一章摘要：${ctx.next.summary || ''}` : '',
+    '',
+    '【整条故事线约束】',
+    JSON.stringify(storyline, null, 2).slice(0, 3000) || '（无）',
     '',
     '【角色】',
     cast,
@@ -109,9 +120,9 @@ function buildPrompt(novel, idx, ctx, instruction = '') {
     '【硬性要求】',
     `1. 只输出本章正文，不要解释、不要 Markdown、不要输出章节标题。`,
     `2. 最高优先级：故事大纲 > 正文内容承接 > 头尾逻辑故事线闭环；正文必须 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字，不能只写梗概。`,
-    '3. 必须按本章大纲推进，不提前写完后几章的关键剧情。',
+    '3. 正文必须从上一章章末状态开始，在本章章末到达指定 end_state，不能跳章、倒序或写成独立开场。',
     '4. 人物、环境、物品出现时必须使用资产索引 ID 对应设定，场景、动作、对话、心理和冲突要具体。',
-    '5. 结尾必须落在本章钩子上。',
+    '5. 所有内容必须对得上整条故事线、前章 end_state、后章 start_state 和本章钩子，不能产生逻辑冲突。',
   ].filter(Boolean).join('\n');
 }
 
