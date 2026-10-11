@@ -1019,9 +1019,47 @@ async function startOutlineGen() {
   if (!llmReady() && !(await S.ctx.confirm('当前 LLM 未就绪，生成会失败。可到「设置」页把 provider 切换为 mock（离线模板）后使用占位内容演示。仍要继续尝试吗？'))) return;
   const has = !!S.detail?.outline;
   if (has && !(await S.ctx.confirm('重新生成会新增一个大纲版本（已写作的章节正文不会被覆盖）。继续？'))) return;
-  const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline`, { saveVersion: true }));
-  if (!r) return;
-  toast(`大纲已生成：规划 ${(r.outline?.sections?.chapters || []).length} 章，${r.summary?.calls || 0} 次模型调用${r.summary?.warnings?.length ? `（${r.summary.warnings.length} 条提示）` : ''}`, 'ok');
+  const primary = await guard(async () => {
+    try {
+      return await S.ctx.api.post(`/api/novels/${S.currentId}/outline`, { saveVersion: true });
+    } catch (err) {
+      return { __error: errText(err) };
+    }
+  });
+  if (!primary) return;
+  let r = primary;
+  if (primary.__error) {
+    const planned = Math.min(200, Math.max(
+      1,
+      num(S.detail?.novel?.planned_chapters, 0),
+      Math.ceil(num(S.detail?.novel?.target_words, 0) / Math.max(1, num(S.detail?.novel?.chapter_words, 2000))),
+    ));
+    const useFallback = await S.ctx.confirm(`整份大纲 JSON 生成失败：${primary.__error}\n\n是否切换为稳健模式？将分 ${Math.ceil(planned / 20)} 批逐章规划，再逐节补齐非章节内容。会调用更多次 LLM，但不会因一次 JSON 截断而全部作废。`);
+    if (!useFallback) { toast(`大纲生成失败：${primary.__error}`, 'err'); return; }
+    r = await guard(async () => {
+      let last = null;
+      for (let from = 1; from <= planned; from += 20) {
+        const to = Math.min(planned, from + 19);
+        last = await S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/chapters`, {
+          from,
+          to,
+          onlyEmpty: false,
+          save: true,
+          maxCalls: 20,
+          instruction: '按整条故事线规划每章章首、章末和上下文衔接，确保前后逻辑一致。',
+        });
+      }
+      const fill = await S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/fill`, {
+        save: true,
+        onlyEmpty: true,
+        instruction: '优先保证故事大纲、正文承接和头尾逻辑故事线闭环。',
+      });
+      return { ...last, fill, planned, summary: { calls: last?.calls || 0, warnings: fill?.warnings || [] } };
+    });
+    if (!r) return;
+  }
+  const plannedCount = (r.outline?.sections?.chapters || []).length || r.planned || r.results?.length || 0;
+  toast(`大纲已生成：规划 ${plannedCount} 章，${r.summary?.calls || 0} 次模型调用${r.summary?.warnings?.length ? `（${r.summary.warnings.length} 条提示）` : ''}`, 'ok');
   S.tab = 'outline';
   await reloadDetail();
   await loadList();
