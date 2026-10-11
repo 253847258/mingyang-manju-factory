@@ -141,7 +141,7 @@ await check('章节规划规范化会夹紧章号并保留章节字段', async (
     chapter: {
       idx: 99,
       title: '规范化章节',
-      summary: '起因、推进、结果完整。',
+      summary: '字'.repeat(4000),
       events: ['事件一', '事件二'],
       characters: ['C-0001'],
       locations: ['L-0001'],
@@ -152,7 +152,10 @@ await check('章节规划规范化会夹紧章号并保留章节字段', async (
   assert.equal(value.title, '规范化章节');
   assert.equal(value.events.length, 2);
   assert.equal(value.characters[0], 'C-0001');
-  return `idx=${value.idx}, events=${value.events.length}`;
+  assert.equal(value.summary.length, OAI.OUTLINE_AI_CHAPTER_MAX_CHARS);
+  assert.equal(OAI.chapterPlanComplete(value), true);
+  assert.equal(OAI.chapterPlanComplete({ ...value, summary: '短大纲' }), false);
+  return `idx=${value.idx}, summary=${value.summary.length}, events=${value.events.length}`;
 });
 
 console.log('\n=== 3. 落库与章节骨架同步 ===');

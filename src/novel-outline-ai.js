@@ -19,6 +19,8 @@ import { syncChapterSkeletons } from './modules/novel.js';
 export const OUTLINE_AI_MAX_REF_CHARS = 12000;
 export const OUTLINE_AI_MAX_ITEMS = 120;
 export const OUTLINE_AI_MAX_CHAPTERS_PER_CALL = 20;
+export const OUTLINE_AI_CHAPTER_MIN_CHARS = 2500;
+export const OUTLINE_AI_CHAPTER_MAX_CHARS = 3500;
 
 const TEXT = (v, max = 400) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 const MULTI = (v, max = 1200) => String(v ?? '').replace(/\r\n?/g, '\n').trim().slice(0, max);
@@ -297,11 +299,13 @@ function contextOf(novel, sections) {
 }
 
 export function chapterPlanComplete(chapter) {
+  const summary = TEXT(chapter?.summary, OUTLINE_AI_CHAPTER_MAX_CHARS + 1);
   return Boolean(
     chapter
     && !chapter._placeholder
     && TEXT(chapter.title, 120)
-    && TEXT(chapter.summary, 1200),
+    && summary.length >= OUTLINE_AI_CHAPTER_MIN_CHARS
+    && summary.length <= OUTLINE_AI_CHAPTER_MAX_CHARS,
   );
 }
 
@@ -402,7 +406,19 @@ function buildChapterPrompt(novel = {}, sections = {}, idx, { instruction = '', 
     '',
     '只输出 JSON，形如：',
     '{"chapter":{"idx":1,"volume":1,"title":"","summary":"","events":[""],"hook":"","cliffhanger":"","characters":["C-0001"],"locations":["L-0001"],"pov":"","foreshadow":["FS-01"]}}',
-    '硬约束：summary 要写清起因、推进、结果和本章作用；events 4-8 条；章末必须给钩子；不要输出解释。',
+    `硬约束：summary 必须是 ${OUTLINE_AI_CHAPTER_MIN_CHARS}-${OUTLINE_AI_CHAPTER_MAX_CHARS} 个中文字符的详细章节大纲，写清起因、推进、转折、结果和本章作用；events 4-8 条；章末必须给钩子；不要输出解释。`,
+  ].filter(Boolean).join('\n');
+}
+
+function buildChapterExpandPrompt(novel = {}, sections = {}, idx, current = '', instruction = '') {
+  return [
+    `请把第 ${idx} 章的章节大纲扩写到 ${OUTLINE_AI_CHAPTER_MIN_CHARS}-${OUTLINE_AI_CHAPTER_MAX_CHARS} 个中文字符。`,
+    `小说：${TEXT(novel.title, 60)}　题材：${TEXT(novel.genre, 40)}　基调：${TEXT(novel.tone, 40)}`,
+    `一句话故事：${TEXT(sections.logline, 160)}`,
+    `当前章节大纲：\n${TEXT(current, OUTLINE_AI_CHAPTER_MAX_CHARS)}`,
+    instruction ? `额外要求：${TEXT(instruction, 500)}` : '',
+    '扩写要求：保留原剧情事实，不另起炉灶；按场景顺序展开，补充冲突动作、人物选择、信息差、因果推进、情绪变化和章末钩子。',
+    `只输出 JSON：{"summary":"${OUTLINE_AI_CHAPTER_MIN_CHARS}-${OUTLINE_AI_CHAPTER_MAX_CHARS} 个中文字符的完整大纲"}`,
   ].filter(Boolean).join('\n');
 }
 
@@ -440,7 +456,7 @@ export function normalizeChapterPlan(raw, ctx, idx) {
     idx: n,
     volume: INT(o.volume) || 1,
     title: TEXT(o.title, 120) || `第${n}章`,
-    summary: MULTI(o.summary, 1400),
+    summary: MULTI(o.summary, OUTLINE_AI_CHAPTER_MAX_CHARS),
     events: (Array.isArray(o.events) ? o.events : []).map((x) => TEXT(x, 220)).filter(Boolean).slice(0, 12),
     hook: TEXT(o.hook, 240),
     cliffhanger: TEXT(o.cliffhanger || o.hook, 320),
@@ -462,10 +478,30 @@ export async function generateChapterPlan(novel, sections, idx, { instruction = 
   }
   const prompt = buildChapterPrompt(novel, sections, n, { instruction, ctx: c, refText: referenceSnippet(novel) });
   try {
-    const out = await chatJSON({ system: AI_SYSTEM, prompt, temperature: 0.75 });
-    const value = normalizeChapterPlan(out?.data, c, n);
-    if (!chapterPlanComplete(value)) throw new Error('模型返回的章节内容不完整');
-    return { idx: n, value, mocked: false, model: out?.model || '', calls: 1 };
+    let calls = 1;
+    const out = await chatJSON({ system: AI_SYSTEM, prompt, temperature: 0.75, maxTokens: 8000 });
+    let value = normalizeChapterPlan(out?.data, c, n);
+    if (!value.title || !value.summary) throw new Error('模型返回的章节内容不完整');
+    if (value.summary.length < OUTLINE_AI_CHAPTER_MIN_CHARS) {
+      try {
+        const expanded = await chatJSON({
+          system: AI_SYSTEM,
+          prompt: buildChapterExpandPrompt(novel, sections, n, value.summary, instruction),
+          temperature: 0.55,
+          maxTokens: 8000,
+        });
+        const longSummary = MULTI(expanded?.data?.summary, OUTLINE_AI_CHAPTER_MAX_CHARS);
+        if (longSummary.length > value.summary.length) value = { ...value, summary: longSummary };
+        calls += 1;
+      } catch (err) {
+        warnings.push(`第 ${n} 章自动扩写失败，保留首次生成内容：${err.message}`);
+      }
+    }
+    const len = value.summary.length;
+    if (len < OUTLINE_AI_CHAPTER_MIN_CHARS) {
+      warnings.push(`第 ${n} 章大纲目前 ${len} 字，低于目标 ${OUTLINE_AI_CHAPTER_MIN_CHARS}-${OUTLINE_AI_CHAPTER_MAX_CHARS} 字；建议对该章再次执行 AI 规划`);
+    }
+    return { idx: n, value, mocked: false, model: out?.model || '', calls };
   } catch (err) {
     warnings.push(`第 ${n} 章 AI 规划失败，已用离线占位替代：${err.message}`);
     return { idx: n, value: buildMockChapterPlan(novel, sections, n, c), mocked: true, calls: 1, error: err.message };
@@ -506,6 +542,7 @@ export async function planChapters(novel, sections, {
     results.push({
       idx,
       title: r.value.title,
+      length: r.value.summary.length,
       mocked: !!r.mocked,
       model: r.model || '',
       error: r.error || '',

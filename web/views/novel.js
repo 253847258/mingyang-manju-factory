@@ -108,6 +108,8 @@ const OUTLINE_SECTIONS_FALLBACK = [
   { key: 'beats', label: '节奏卡点与爽点曲线' }, { key: 'hooks', label: '钩子银行（章末钩子）' },
   { key: 'loops', label: '跨季章节时间回路' }, { key: 'logic', label: '全篇逻辑关系与因果链' },
 ];
+const CHAPTER_OUTLINE_MIN_CHARS = 2500;
+const CHAPTER_OUTLINE_MAX_CHARS = 3500;
 
 const S = {
   root: null, ctx: null, meta: null, llm: null,
@@ -521,7 +523,14 @@ function outlineSectionEmpty(key, val) {
 }
 
 function chapterPlanComplete(c) {
-  return Boolean(c && !c._placeholder && String(c.title || '').trim() && String(c.summary || '').trim());
+  const len = String(c?.summary || '').trim().length;
+  return Boolean(
+    c
+    && !c._placeholder
+    && String(c.title || '').trim()
+    && len >= CHAPTER_OUTLINE_MIN_CHARS
+    && len <= CHAPTER_OUTLINE_MAX_CHARS,
+  );
 }
 
 function chapterPlanStatsLocal(rows, novel) {
@@ -599,16 +608,48 @@ function cellVal(v, key, i) {
 
 function chaptersOutlineTable(chs) {
   return `<div class="nv-scroll"><table class="nv-tbl"><thead><tr><th>章</th><th>标题</th><th>剧情走向</th><th>人物/地点</th><th>章末钩子</th><th>操作</th></tr></thead><tbody>
-    ${chs.map((c) => `<tr>
+    ${chs.map((c) => {
+      const summary = String(c.summary || '').trim();
+      const preview = summary.length > 260 ? `${summary.slice(0, 260)}…` : summary;
+      const short = !c._placeholder && summary.length < CHAPTER_OUTLINE_MIN_CHARS;
+      return `<tr>
       <td>${num(c.idx, 0)}</td>
       <td>${esc(c.title || '')}</td>
-      <td style="max-width:420px">${esc(c.summary || '')}${c._placeholder ? ' ' + badge('待补全', 'warn') : ''}</td>
+      <td style="max-width:480px">
+        <div style="line-height:1.6">${esc(preview || '—')}</div>
+        <div class="nv-hint">大纲 ${summary.length} 字${c._placeholder ? ' ' + badge('待补全', 'warn') : (short ? ' ' + badge('不足 2500 字', 'warn') : '')}</div>
+      </td>
       <td class="nv-muted">${esc((c.characters || []).join('、') || '—')}<br>${esc((c.locations || []).join('、') || '')}</td>
       <td style="max-width:200px">${esc(c.cliffhanger || c.hook || '—')}</td>
       <td><button class="nv-btn nv-btn-sm" data-act="read" data-idx="${num(c.idx, 0)}">读</button>
+          <button class="nv-btn nv-btn-sm" data-act="outline-chapter-view" data-idx="${num(c.idx, 0)}">大纲</button>
           <button class="nv-btn nv-btn-sm" data-act="gen-chapter" data-idx="${num(c.idx, 0)}" title="按大纲重写本章正文">写作</button>
           <button class="nv-btn nv-btn-sm" data-act="outline-ai-chapter" data-idx="${num(c.idx, 0)}" title="只重新规划这一章的大纲细节">AI 规划</button></td>
-    </tr>`).join('')}</tbody></table></div>`;
+    </tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+
+function showChapterOutline(idx) {
+  const c = (S.detail?.outline?.sections?.chapters || []).find((x) => num(x.idx, 0) === num(idx, 0));
+  if (!c) { toast('本章大纲不存在', 'err'); return; }
+  const summary = String(c.summary || '').trim();
+  const body = document.createElement('div');
+  body.innerHTML = `<div class="nv-note" style="line-height:1.8">
+    <b>第 ${num(c.idx, 0)} 章　${esc(c.title || '')}</b>
+    <span class="nv-pill">大纲 ${summary.length} 字</span>
+    ${summary.length < CHAPTER_OUTLINE_MIN_CHARS ? badge('低于 2500 字', 'warn') : badge('长度达标', 'ok')}
+  </div>
+  <div style="margin-top:10px;line-height:1.9;white-space:pre-wrap;max-height:62vh;overflow:auto;font-size:13px">${esc(summary || '（本章大纲为空）')}</div>
+  ${(c.events || []).length ? `<div class="nv-note" style="margin-top:10px"><b>关键事件：</b>${c.events.map((x) => esc(x)).join('；')}</div>` : ''}
+  ${(c.cliffhanger || c.hook) ? `<div class="nv-note" style="margin-top:8px"><b>章末钩子：</b>${esc(c.cliffhanger || c.hook)}</div>` : ''}`;
+  const m = S.ctx.modal({ title: `第 ${num(c.idx, 0)} 章大纲`, body, width: 760 });
+  const bar = document.createElement('div');
+  bar.className = 'nv-row';
+  bar.style.marginTop = '10px';
+  bar.innerHTML = `<button class="nv-btn nv-btn-a" data-a="replan">AI 重规划本章</button><button class="nv-btn" data-a="close">关闭</button>`;
+  body.appendChild(bar);
+  bar.querySelector('[data-a="close"]').onclick = () => m.close();
+  bar.querySelector('[data-a="replan"]').onclick = () => { m.close(); openChapterAiPlan({ from: num(c.idx, 0), to: num(c.idx, 0), onlyEmptyDefault: false }); };
 }
 
 // ---------- 章节面板 ----------
@@ -1019,7 +1060,7 @@ function openChapterAiPlan({ from = 1, to = null, onlyEmptyDefault = true } = {}
   const end = Math.min(Math.max(endDefault, start), stats.expected);
   const single = start === end;
   const wrap = document.createElement('div');
-  wrap.innerHTML = `<div class="nv-hint" style="line-height:1.8">按章调用 AI 规划，每章产出标题、剧情走向、关键事件、人物/地点、章末钩子和伏笔。当前共 ${stats.expected} 章，${stats.missing.length} 章不完整；本次最多处理 20 章。</div>
+  wrap.innerHTML = `<div class="nv-hint" style="line-height:1.8">按章调用 AI 规划，每章大纲目标 <b>${CHAPTER_OUTLINE_MIN_CHARS}-${CHAPTER_OUTLINE_MAX_CHARS} 个中文字符</b>，并产出标题、关键事件、人物/地点、章末钩子和伏笔。当前共 ${stats.expected} 章，${stats.missing.length} 章未达标；本次最多处理 20 章。</div>
     <div class="nv-row" style="margin-top:10px">
       <label class="nv-f"><span class="nv-lbl">起始章</span><input class="nv-input" id="nv-ch-from" type="number" min="1" max="${stats.expected}" value="${start}"></label>
       <label class="nv-f"><span class="nv-lbl">结束章</span><input class="nv-input" id="nv-ch-to" type="number" min="1" max="${stats.expected}" value="${end}"></label>
@@ -1297,6 +1338,7 @@ async function onClickEvent(e) {
     case 'outline-ai-plan': startOutlineAiPlan(); return;
     case 'outline-ai-chapters': openChapterAiPlan(); return;
     case 'outline-ai-chapter': openChapterAiPlan({ from: idx, to: idx, onlyEmptyDefault: false }); return;
+    case 'outline-chapter-view': showChapterOutline(idx); return;
     case 'outline-ai-section': await startOutlineAiSection(el.dataset.key, el.dataset.label || '大纲分节'); return;
     case 'outline-optimize': optimizeOutline(); return;
     case 'outline-append': appendOutline(); return;
