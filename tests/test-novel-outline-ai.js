@@ -95,7 +95,9 @@ await check('状态返回 14 个分节，13 个可 AI 补齐，chapters 单独�
   assert.equal(status.fillable.length, 13);
   assert.equal(status.fillable.includes('chapters'), false);
   assert.equal(status.sections.find((x) => x.key === 'chapters')?.empty, true);
-  return `missing=${status.missing.length}, fillable=${status.fillable.length}`;
+  assert.equal(status.chapterStats.expected, 12);
+  assert.equal(status.chapterStats.missing.length, 12);
+  return `missing=${status.missing.length}, chapters=${status.chapterStats.complete}/${status.chapterStats.expected}`;
 });
 
 console.log('\n=== 2. 逐节补齐与规范化 ===');
@@ -121,6 +123,36 @@ await check('地点 ID 冲突自动编号，伏笔回收章晚于埋设章，强
   const beats = OAI.normalizeSection('beats', [{ chapter: 3, intensity: 99 }], ctx);
   assert.equal(beats[0].intensity, 10);
   return `${loc[0].id}, payoff=${fs[0].payoff_chapter}, intensity=${beats[0].intensity}`;
+});
+await check('指定章节范围逐章规划，只改目标章并保留其余章节槽位', async () => {
+  const novel = OAI.novelOf('N-OAI');
+  const planned = await OAI.planChapters(novel, filled.sections, { from: 2, to: 3 });
+  assert.equal(planned.requested, 2);
+  assert.equal(planned.calls, 0);
+  assert.equal(planned.sections.chapters.length, 12);
+  assert.match(planned.sections.chapters[1].title, /离线占位/);
+  assert.match(planned.sections.chapters[2].summary, /离线占位/);
+  assert.equal(planned.sections.chapters[0]._placeholder, true);
+  filled = { ...filled, sections: planned.sections };
+  return `range=${planned.from}-${planned.to}, results=${planned.results.length}`;
+});
+await check('章节规划规范化会夹紧章号并保留章节字段', async () => {
+  const value = OAI.normalizeChapterPlan({
+    chapter: {
+      idx: 99,
+      title: '规范化章节',
+      summary: '起因、推进、结果完整。',
+      events: ['事件一', '事件二'],
+      characters: ['C-0001'],
+      locations: ['L-0001'],
+      foreshadow: ['FS-01'],
+    },
+  }, { chapterMax: 12 }, 12);
+  assert.equal(value.idx, 12);
+  assert.equal(value.title, '规范化章节');
+  assert.equal(value.events.length, 2);
+  assert.equal(value.characters[0], 'C-0001');
+  return `idx=${value.idx}, events=${value.events.length}`;
 });
 
 console.log('\n=== 3. 落库与章节骨架同步 ===');
@@ -181,6 +213,28 @@ await check('POST /outline/ai/fill save=false 不写库', async () => {
   const after = OAI.loadSections('N-OAI');
   assert.deepEqual(after, before);
   return `requested=${json.requested}, saved=${json.saved}`;
+});
+await check('POST /outline/ai/chapters save=true 只规划指定章并新增版本', async () => {
+  const res = await fetch(`${base}/api/novels/N-OAI/outline/ai/chapters`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ from: 4, to: 5, onlyEmpty: true, save: true }),
+  });
+  const json = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(json.ok, true);
+  assert.equal(json.from, 4);
+  assert.equal(json.to, 5);
+  assert.equal(json.requested, 2);
+  assert.equal(json.mocked, true);
+  assert.equal(json.saved.version, 4);
+  assert.equal(json.stats.expected, 12);
+  assert.match(json.results[0].title, /离线占位/);
+  const sections = OAI.loadSections('N-OAI');
+  assert.equal(sections.chapters.length, 12);
+  assert.match(sections.chapters[3].title, /离线占位/);
+  assert.equal(sections.chapters[0].title, '第1章');
+  return `v${json.saved.version}, range=${json.from}-${json.to}`;
 });
 
 if (server.closeAllConnections) server.closeAllConnections();

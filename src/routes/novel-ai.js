@@ -3,7 +3,7 @@
 import { badRequest } from '../http.js';
 import { generateFrameworkProposal, commitCharacters } from '../novel-ai.js';
 import {
-  outlineAiStatus, loadSections, novelOf, fillSections, generateSection, saveOutlineVersion,
+  outlineAiStatus, loadSections, novelOf, fillSections, generateSection, planChapters, saveOutlineVersion,
 } from '../novel-outline-ai.js';
 
 function param(ctx, name) {
@@ -77,6 +77,38 @@ export function registerNovelAiRoutes(app) {
         saved,
       });
     } catch (err) { throw badRequest(err.message || 'AI 补齐大纲失败'); }
+  });
+
+  app.post('/api/novels/:id/outline/ai/chapters', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      const novelId = param(ctx, 'id');
+      const novel = novelOf(novelId);
+      const sections = loadSections(novelId);
+      const r = await planChapters(novel, sections, {
+        from: body.from,
+        to: body.to,
+        onlyEmpty: body.onlyEmpty !== false,
+        instruction: String(body.instruction || ''),
+        maxCalls: body.maxCalls,
+      });
+      const saved = body.save
+        ? saveOutlineVersion(novelId, r.sections, { source: 'ai-chapters', note: String(body.note || '') })
+        : null;
+      ctx.json({
+        ok: true,
+        from: r.from,
+        to: r.to,
+        requested: r.requested,
+        skipped: r.skipped,
+        results: r.results,
+        warnings: r.warnings,
+        calls: r.calls,
+        mocked: r.results.some((x) => x.mocked),
+        stats: r.stats,
+        saved,
+      });
+    } catch (err) { throw badRequest(err.message || 'AI 规划指定章节失败'); }
   });
 
   app.post('/api/novels/:id/outline/ai/save', async (ctx) => {

@@ -18,6 +18,7 @@ import { syncChapterSkeletons } from './modules/novel.js';
 
 export const OUTLINE_AI_MAX_REF_CHARS = 12000;
 export const OUTLINE_AI_MAX_ITEMS = 120;
+export const OUTLINE_AI_MAX_CHAPTERS_PER_CALL = 20;
 
 const TEXT = (v, max = 400) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 const MULTI = (v, max = 1200) => String(v ?? '').replace(/\r\n?/g, '\n').trim().slice(0, max);
@@ -295,6 +296,234 @@ function contextOf(novel, sections) {
   };
 }
 
+export function chapterPlanComplete(chapter) {
+  return Boolean(
+    chapter
+    && !chapter._placeholder
+    && TEXT(chapter.title, 120)
+    && TEXT(chapter.summary, 1200),
+  );
+}
+
+export function chapterPlanStats(sections = {}, novel = {}) {
+  const expected = chapterBudget(novel, sections);
+  const byIdx = new Map(
+    (Array.isArray(sections.chapters) ? sections.chapters : [])
+      .map((c) => [INT(c?.idx), c])
+      .filter(([idx]) => idx > 0),
+  );
+  const missing = [];
+  for (let idx = 1; idx <= expected; idx += 1) {
+    if (!chapterPlanComplete(byIdx.get(idx))) missing.push(idx);
+  }
+  return {
+    expected,
+    actual: Array.isArray(sections.chapters) ? sections.chapters.length : 0,
+    complete: expected - missing.length,
+    missing,
+  };
+}
+
+function ensureChapterSlots(sections = {}, novel = {}, ctx = null) {
+  const c = ctx || contextOf(novel, sections);
+  const rows = new Map(
+    (Array.isArray(sections.chapters) ? sections.chapters : [])
+      .map((x) => [INT(x?.idx), { ...x }])
+      .filter(([idx]) => idx > 0),
+  );
+  const seasons = Math.max(1, Number(novel.seasons) || 1);
+  const perVolume = Math.max(1, Math.ceil(c.chapterMax / seasons));
+  for (let idx = 1; idx <= c.chapterMax; idx += 1) {
+    if (rows.has(idx)) continue;
+    rows.set(idx, {
+      idx,
+      volume: Math.min(seasons, Math.floor((idx - 1) / perVolume) + 1),
+      title: `第${idx}章（待规划）`,
+      summary: '',
+      events: [],
+      hook: '',
+      cliffhanger: '',
+      characters: [],
+      locations: [],
+      pov: '',
+      foreshadow: [],
+      _placeholder: true,
+    });
+  }
+  return [...rows.values()].sort((a, b) => INT(a.idx) - INT(b.idx));
+}
+
+function buildChapterPrompt(novel = {}, sections = {}, idx, { instruction = '', ctx = null, refText = '' } = {}) {
+  const c = ctx || contextOf(novel, sections);
+  const n = Math.min(Math.max(INT(idx) || 1, 1), c.chapterMax);
+  const rows = ensureChapterSlots(sections, novel, c);
+  const row = rows.find((x) => INT(x.idx) === n) || {};
+  const prev = rows.find((x) => INT(x.idx) === n - 1);
+  const next = rows.find((x) => INT(x.idx) === n + 1);
+  const castLines = c.cast.slice(0, 60).map((x) => `${x.id} ${x.name}${x.role ? `（${x.role}）` : ''}`).join('\n') || '（未绑定角色）';
+  const locations = (Array.isArray(sections.locations) ? sections.locations : [])
+    .slice(0, 60)
+    .map((x) => `${TEXT(x?.id, 20)} ${TEXT(x?.name, 60)}`)
+    .filter(Boolean)
+    .join('\n') || '（地点待规划）';
+  const foreshadows = (Array.isArray(sections.foreshadow) ? sections.foreshadow : [])
+    .slice(0, 80)
+    .map((x) => `${TEXT(x?.id, 20)} ${TEXT(x?.content, 100)}`)
+    .filter(Boolean)
+    .join('\n') || '（暂无伏笔表）';
+  const framework = sections.framework && typeof sections.framework === 'object' ? JSON.stringify(sections.framework) : '（无）';
+  return [
+    '【小说参数】',
+    `书名：${TEXT(novel.title, 60) || '（未命名）'}`,
+    `题材：${TEXT(novel.genre, 40)}${novel.sub_genre ? `/ ${TEXT(novel.sub_genre, 40)}` : ''}`,
+    `基调：${TEXT(novel.tone, 40)}　视角：${TEXT(novel.pov, 40)}`,
+    `总章数：${c.chapterMax}　目标：${Number(novel.target_words) || 0} 字 / 单章 ${Number(novel.chapter_words) || 0} 字`,
+    '',
+    '【本次指定章节】',
+    `第 ${n} 章（必须只规划这一章，idx 必须等于 ${n}）`,
+    `当前内容：${JSON.stringify(row).slice(0, 1600)}`,
+    `前一章：${prev ? `第${prev.idx}章 ${TEXT(prev.title, 60)}：${TEXT(prev.summary, 240)}` : '（无）'}`,
+    `后一章：${next ? `第${next.idx}章 ${TEXT(next.title, 60)}：${TEXT(next.summary, 240)}` : '（无）'}`,
+    '',
+    '【既有故事框架】',
+    framework,
+    `一句话故事：${TEXT(sections.logline, 160) || '（无）'}`,
+    '',
+    '【可用角色（只能用这些编号或姓名）】',
+    castLines,
+    '',
+    '【地点档案（优先使用这些 ID/名称）】',
+    locations,
+    '',
+    '【伏笔表（优先复用这些编号）】',
+    foreshadows,
+    refText ? `\n【参考范本（只参考风格与节奏，不要照抄）】\n${refText.slice(0, 6000)}` : '',
+    instruction ? `\n【额外要求】\n${TEXT(instruction, 500)}` : '',
+    '',
+    '只输出 JSON，形如：',
+    '{"chapter":{"idx":1,"volume":1,"title":"","summary":"","events":[""],"hook":"","cliffhanger":"","characters":["C-0001"],"locations":["L-0001"],"pov":"","foreshadow":["FS-01"]}}',
+    '硬约束：summary 要写清起因、推进、结果和本章作用；events 4-8 条；章末必须给钩子；不要输出解释。',
+  ].filter(Boolean).join('\n');
+}
+
+export function buildMockChapterPlan(novel = {}, sections = {}, idx, ctx = null) {
+  const c = ctx || contextOf(novel, sections);
+  const n = Math.min(Math.max(INT(idx) || 1, 1), c.chapterMax);
+  const tag = '【离线占位】';
+  const cast = c.cast.filter((x) => /^C(X)?-\d{4}$/i.test(x.id)).slice(0, 3).map((x) => x.id);
+  const locations = (Array.isArray(sections.locations) ? sections.locations : []).map((x) => TEXT(x?.id, 20)).filter(Boolean).slice(0, 2);
+  const foreshadow = (Array.isArray(sections.foreshadow) ? sections.foreshadow : []).map((x) => TEXT(x?.id, 20)).filter(Boolean).slice(0, 2);
+  return {
+    idx: n,
+    volume: 1,
+    title: `${tag}第${n}章`,
+    summary: `${tag}第${n}章：主角推进当前目标，遭遇新的阻碍并付出代价，本章结尾把冲突推向下一章。`,
+    events: [`${tag}主角调查线索`, `${tag}对手升级施压`, `${tag}关键人物做出选择`, `${tag}章末留下新危机`],
+    hook: `${tag}一个反常细节指向更大的秘密`,
+    cliffhanger: `${tag}主角刚拿到线索，就发现线索本身是陷阱`,
+    characters: cast,
+    locations,
+    pov: cast[0] || '',
+    foreshadow,
+    _placeholder: true,
+  };
+}
+
+export function normalizeChapterPlan(raw, ctx, idx) {
+  const o = raw && typeof raw === 'object' && raw.chapter && typeof raw.chapter === 'object'
+    ? raw.chapter
+    : raw && typeof raw === 'object' && raw.value && typeof raw.value === 'object'
+      ? raw.value
+      : raw && typeof raw === 'object' ? raw : {};
+  const n = Math.min(Math.max(INT(idx) || INT(o.idx) || 1, 1), ctx?.chapterMax || INT(idx) || 1);
+  return {
+    idx: n,
+    volume: INT(o.volume) || 1,
+    title: TEXT(o.title, 120) || `第${n}章`,
+    summary: MULTI(o.summary, 1400),
+    events: (Array.isArray(o.events) ? o.events : []).map((x) => TEXT(x, 220)).filter(Boolean).slice(0, 12),
+    hook: TEXT(o.hook, 240),
+    cliffhanger: TEXT(o.cliffhanger || o.hook, 320),
+    characters: STR_LIST(o.characters, 20),
+    locations: STR_LIST(o.locations, 20),
+    pov: TEXT(o.pov, 60),
+    foreshadow: STR_LIST(o.foreshadow, 20),
+    _placeholder: Boolean(o._placeholder),
+  };
+}
+
+export async function generateChapterPlan(novel, sections, idx, { instruction = '', warnings = [], ctx = null } = {}) {
+  const c = ctx || contextOf(novel, sections);
+  const n = Math.min(Math.max(INT(idx) || 1, 1), c.chapterMax);
+  const status = llmStatus();
+  if (status?.provider === 'mock') {
+    warnings.push(`第 ${n} 章使用离线占位内容（当前 LLM 为 mock）`);
+    return { idx: n, value: buildMockChapterPlan(novel, sections, n, c), mocked: true, calls: 0 };
+  }
+  const prompt = buildChapterPrompt(novel, sections, n, { instruction, ctx: c, refText: referenceSnippet(novel) });
+  try {
+    const out = await chatJSON({ system: AI_SYSTEM, prompt, temperature: 0.75 });
+    const value = normalizeChapterPlan(out?.data, c, n);
+    if (!chapterPlanComplete(value)) throw new Error('模型返回的章节内容不完整');
+    return { idx: n, value, mocked: false, model: out?.model || '', calls: 1 };
+  } catch (err) {
+    warnings.push(`第 ${n} 章 AI 规划失败，已用离线占位替代：${err.message}`);
+    return { idx: n, value: buildMockChapterPlan(novel, sections, n, c), mocked: true, calls: 1, error: err.message };
+  }
+}
+
+// 指定章节范围逐章规划；默认只补不完整章节，避免覆盖已有可用内容。
+export async function planChapters(novel, sections, {
+  from = 1,
+  to = null,
+  onlyEmpty = true,
+  instruction = '',
+  maxCalls = OUTLINE_AI_MAX_CHAPTERS_PER_CALL,
+} = {}) {
+  const ctx = contextOf(novel, sections);
+  const expected = ctx.chapterMax;
+  const start = Math.max(1, INT(from) || 1);
+  const end = Math.min(expected, INT(to) || expected);
+  if (start > end || start > expected) throw new Error(`章节范围无效：${start}-${end}，当前总章数为 ${expected}`);
+  const chapters = ensureChapterSlots(sections, novel, ctx);
+  const range = [];
+  for (let idx = start; idx <= end; idx += 1) range.push(idx);
+  const targets = onlyEmpty
+    ? range.filter((idx) => !chapterPlanComplete(chapters.find((x) => INT(x.idx) === idx)))
+    : range;
+  const limited = targets.slice(0, Math.max(1, Number(maxCalls) || OUTLINE_AI_MAX_CHAPTERS_PER_CALL));
+  const warnings = [];
+  const results = [];
+  let calls = 0;
+  if (targets.length > limited.length) {
+    warnings.push(`本次只规划前 ${limited.length} 章，另有 ${targets.length - limited.length} 章未处理，请再次指定范围`);
+  }
+  for (const idx of limited) {
+    const r = await generateChapterPlan(novel, { ...sections, chapters }, idx, { instruction, warnings, ctx });
+    const at = chapters.findIndex((x) => INT(x.idx) === idx);
+    if (at >= 0) chapters[at] = r.value;
+    calls += r.calls;
+    results.push({
+      idx,
+      title: r.value.title,
+      mocked: !!r.mocked,
+      model: r.model || '',
+      error: r.error || '',
+    });
+  }
+  return {
+    sections: { ...sections, chapters },
+    results,
+    warnings,
+    calls,
+    requested: limited.length,
+    skipped: Math.max(0, targets.length - limited.length),
+    from: start,
+    to: end,
+    stats: chapterPlanStats({ ...sections, chapters }, novel),
+  };
+}
+
 export function buildSectionPrompt(novel = {}, sections = {}, key, { instruction = '', ctx = null, refText = '' } = {}) {
   const spec = SPEC_BY_KEY.get(key);
   if (!spec) throw new Error(`未知大纲分节：${key}`);
@@ -518,6 +747,7 @@ export function outlineAiStatus(novelId) {
       empty: isEmptySection(s.key, sections[s.key]),
       size: Array.isArray(sections[s.key]) ? sections[s.key].length : (sections[s.key] && typeof sections[s.key] === 'object' ? Object.keys(sections[s.key]).length : (sections[s.key] ? 1 : 0)),
     })),
+    chapterStats: chapterPlanStats(sections, novel),
     missing,
     fillable: missing.filter((k) => k !== 'chapters'),
   };
