@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const DATA_TMP = path.join(os.tmpdir(), `factory-comfy-data-${Date.now()}`);
 const DB = path.join(os.tmpdir(), `factory-comfy-${Date.now()}.db`);
@@ -28,6 +29,17 @@ const ok = (name, cond, extra = '') => {
   if (cond) { pass++; console.log(`  ✓ ${name}${extra ? `  ${extra}` : ''}`); }
   else { fail++; console.log(`  ✗ ${name}${extra ? `  ${extra}` : ''}`); }
 };
+let skipped = 0;
+const skip = (name, why = '') => { skipped++; console.log(`  ⤼ [跳过] ${name}${why ? `  ${why}` : ''}`); };
+
+// 宿主能力探测：自带 ffmpeg 是 essentials 构建，可能不含 SVG 解码器（librsvg）
+const SVG_DECODER_OK = (() => {
+  try {
+    const out = spawnSync('ffmpeg', ['-hide_banner', '-decoders'], { encoding: 'utf8' });
+    return /\bsvg\b|librsvg/i.test(`${out.stdout || ''}${out.stderr || ''}`);
+  } catch { return false; }
+})();
+const NO_SVG_WHY = '（本机 ffmpeg 未编译 SVG 解码器；占位出图已改 PNG，不再依赖这条路径）';
 
 // ---------------- 假 ComfyUI 实例（尽量照抄真实 /object_info 形态） ----------------
 const TURBO_LORA = 'minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors';
@@ -213,14 +225,25 @@ ok('disablePromptorSwitch 关掉指向 H3_Promptor 的开关', comfy.disableProm
 console.log('\n【3】关键帧光栅化（SVG → PNG）');
 const svgDir = path.join(DATA_DIR, 'images', 'ASSET_TEST');
 fs.mkdirSync(svgDir, { recursive: true });
+// svgPath 在【3】与【5】都要用，声明在守卫外层（写文件本身不需要解码器）
 const svgPath = path.join(svgDir, 'kf.svg');
 fs.writeFileSync(svgPath, '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="320" height="180" fill="#123"/><circle cx="160" cy="90" r="60" fill="#e91"/></svg>');
-const raster = await comfy.rasterizeKeyframe(svgPath);
-ok('SVG 被光栅化为 PNG', raster.rasterized === true && raster.abs.endsWith('.png') && fs.existsSync(raster.abs) && fs.readFileSync(raster.abs).slice(0, 4).toString('hex') === '89504e47');
 const pngPath = path.join(svgDir, 'kf.png');
-fs.copyFileSync(raster.abs, pngPath);
+if (SVG_DECODER_OK) {
+  const raster = await comfy.rasterizeKeyframe(svgPath);
+  ok('SVG 被光栅化为 PNG', raster.rasterized === true && raster.abs.endsWith('.png') && fs.existsSync(raster.abs) && fs.readFileSync(raster.abs).slice(0, 4).toString('hex') === '89504e47');
+  fs.copyFileSync(raster.abs, pngPath);
+} else {
+  skip('SVG 被光栅化为 PNG', NO_SVG_WHY);
+  // 仍要验证「位图关键帧原样使用」，所以自己造一张真 PNG（用仓库自带的纯明文 PNG 编码器）
+  const { encodePng } = await import('../src/pngd.js');
+  fs.writeFileSync(pngPath, encodePng({ width: 8, height: 8, rgba: Buffer.alloc(8 * 8 * 4, 180) }));
+}
 const passthrough = await comfy.rasterizeKeyframe(pngPath);
 ok('位图关键帧原样使用（不重复转码）', passthrough.rasterized === false && passthrough.abs === pngPath);
+// 【6】【6.5】只关心"有无关键帧"的行为分支，与栅格化无关：
+// 宿主能解 SVG 就用 SVG，不能就用真 PNG，两条路径语义一致。
+const KF = SVG_DECODER_OK ? svgPath : pngPath;
 
 // ---------------- 4. 端到端：文生视频（无关键帧） ----------------
 console.log('\n【4】端到端 · 文生视频（无关键帧）');
@@ -240,21 +263,25 @@ ok('无关键帧时未上传任何图', state.uploads.length === 0);
 
 // ---------------- 5. 端到端：首帧驱动 i2v（占位 SVG 关键帧） ----------------
 console.log('\n【5】端到端 · 首帧驱动（占位 SVG 关键帧自动光栅化）');
-reset();
-const resI2v = await generateVideo({ backend: 'comfyui-h3', scriptId: 'SC-T', code: 'S01E001', shotId: 'SH-2', prompt: '档案馆长廊，男子缓步', keyframe: svgPath, duration: 6, ratio: '9:16' });
-ok('走内置 i2v 模板', resI2v.raw.template === 'h3-image-to-video.workflow.json', resI2v.raw.template);
-ok('关键帧已上传且是 PNG（不是原始 SVG）', state.uploads.length === 1 && /\.png$/i.test(state.uploads[0].name) && state.uploads[0].magic === '89504e47', JSON.stringify(state.uploads[0] || {}));
-ok('上传的是被光栅化后的 PNG 文件名', /^kf_/.test(state.uploads[0].name), state.uploads[0].name);
-ok('131.image 指向刚上传的文件', state.submitted['131'].inputs.image === state.uploads[0].name);
-ok('结果标记 keyframeUploaded + 光栅化警告', resI2v.raw.keyframeUploaded === true && resI2v.warnings.some((w) => /光栅化/.test(w)), resI2v.warnings.join(' | ').slice(0, 120));
-ok('9:16 映射到竖屏枚举值', state.submitted['115'].inputs.aspect_ratio === '9:16 (Portrait)');
-ok('duration=6 也写进模板', state.submitted['133'].inputs.value === 6);
+if (SVG_DECODER_OK) {
+  reset();
+  const resI2v = await generateVideo({ backend: 'comfyui-h3', scriptId: 'SC-T', code: 'S01E001', shotId: 'SH-2', prompt: '档案馆长廊，男子缓步', keyframe: KF, duration: 6, ratio: '9:16' });
+  ok('走内置 i2v 模板', resI2v.raw.template === 'h3-image-to-video.workflow.json', resI2v.raw.template);
+  ok('关键帧已上传且是 PNG（不是原始 SVG）', state.uploads.length === 1 && /\.png$/i.test(state.uploads[0].name) && state.uploads[0].magic === '89504e47', JSON.stringify(state.uploads[0] || {}));
+  ok('上传的是被光栅化后的 PNG 文件名', /^kf_/.test(state.uploads[0].name), state.uploads[0].name);
+  ok('131.image 指向刚上传的文件', state.submitted['131'].inputs.image === state.uploads[0].name);
+  ok('结果标记 keyframeUploaded + 光栅化警告', resI2v.raw.keyframeUploaded === true && resI2v.warnings.some((w) => /光栅化/.test(w)), resI2v.warnings.join(' | ').slice(0, 120));
+  ok('9:16 映射到竖屏枚举值', state.submitted['115'].inputs.aspect_ratio === '9:16 (Portrait)');
+  ok('duration=6 也写进模板', state.submitted['133'].inputs.value === 6);
+} else {
+  skip('端到端首帧驱动 i2v（模板/上传 PNG/枚举/时长 共 7 条）', NO_SVG_WHY);
+}
 
 console.log('\n【6】实例不支持首帧时自动回退文生视频');
 reset();
 state.imageCapable = false;
 comfy.clearObjectInfoCache();
-const resFallback = await generateVideo({ backend: 'comfyui-h3', scriptId: 'SC-T', code: 'S01E001', shotId: 'SH-3', prompt: '夜航船', keyframe: svgPath, duration: 5 });
+const resFallback = await generateVideo({ backend: 'comfyui-h3', scriptId: 'SC-T', code: 'S01E001', shotId: 'SH-3', prompt: '夜航船', keyframe: KF, duration: 5 });
 ok('回退到 t2v 模板并说明原因', resFallback.raw.template === 'h3-text-to-video.workflow.json' && resFallback.warnings.some((w) => /回退文生视频/.test(w)), resFallback.warnings.filter((w) => /回退/.test(w)).join(' | '));
 ok('回退时不上传关键帧（不浪费带宽）', state.uploads.length === 0 && resFallback.raw.keyframeUploaded === false);
 state.imageCapable = true;
@@ -264,13 +291,13 @@ console.log('\n【6.5】实例把首帧列为必填时的两种处置');
 reset();
 state.imageRequired = true;
 comfy.clearObjectInfoCache();
-const resReq = await generateVideo({ backend: 'comfyui-h3', scriptId: 'SC-T', code: 'S01E001', shotId: 'SH-3b', prompt: '雨夜追车', keyframe: svgPath, duration: 5 });
+const resReq = await generateVideo({ backend: 'comfyui-h3', scriptId: 'SC-T', code: 'S01E001', shotId: 'SH-3b', prompt: '雨夜追车', keyframe: KF, duration: 5 });
 ok('有关键帧 → 直接用首帧驱动模板', resReq.raw.template === 'h3-image-to-video.workflow.json', resReq.raw.template);
 ok('首帧确实提交给了实例', resReq.raw.keyframeUploaded === true && Boolean(state.submitted['131'].inputs.image));
 // 关掉「首帧优先」后本会选文生模板，但实例要求必填首帧 → 预检失败后自动救回 i2v
 reset();
 saveConfig({ video: { comfy: { preferKeyframe: false } } });
-const resReq2 = await generateVideo({ backend: 'comfyui-h3', scriptId: 'SC-T', code: 'S01E001', shotId: 'SH-3d', prompt: '雨夜追车', keyframe: svgPath, duration: 5 });
+const resReq2 = await generateVideo({ backend: 'comfyui-h3', scriptId: 'SC-T', code: 'S01E001', shotId: 'SH-3d', prompt: '雨夜追车', keyframe: KF, duration: 5 });
 ok('文生模板缺首帧时自动改用首帧驱动模板并说明', resReq2.raw.template === 'h3-image-to-video.workflow.json' && resReq2.warnings.some((w) => /把首帧列为必填/.test(w)), resReq2.warnings.filter((w) => /必填/.test(w)).join(' | '));
 saveConfig({ video: { comfy: { preferKeyframe: true } } });
 reset();
@@ -432,7 +459,7 @@ ok('node_errors 为空的 200 响应照常提交并出片（新校验不误伤�
 reset();
 saveConfig({ video: { comfy: { workflowPath: '', preflight: true, pollMs: 5, timeoutMs: 60000 } } });
 
-console.log(`\n=== 结果：${pass} 通过 / ${fail} 失败 ===`);
+console.log(`\n=== 结果：${pass} 通过 / ${fail} 失败${skipped ? ` / 跳过 ${skipped}` : ''} ===`);
 server.close();
 try {
   fs.rmSync(DB, { force: true }); fs.rmSync(DB + '-wal', { force: true }); fs.rmSync(DB + '-shm', { force: true });

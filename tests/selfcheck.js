@@ -136,12 +136,15 @@ check('出图后端状态可读', () => {
   const s = imageBackendStatus();
   assert.ok(['placeholder', 'openai-images', 'generic-http', 'comfyui'].includes(s.backend));
 });
-await checkAsync('占位出图产出真实文件（SVG）', async () => {
+await checkAsync('占位出图产出真实文件（PNG）', async () => {
   const out = await generateImage({ actorId: created.id, kind: 'face', variant: 'front', prompt: 'test prompt', negative: 'bad', width: 512, height: 512, backend: 'placeholder' });
   assert.ok(out.ok && out.filePath, '未返回文件');
   const abs = safeJoin(path.resolve(import.meta.dirname, '..'), out.filePath);
   assert.ok(fs.existsSync(abs), '文件未落盘：' + abs);
-  assert.ok(fs.readFileSync(abs, 'utf8').includes('<svg'), '不是 SVG');
+  // 占位出图已从 SVG 改为 PNG（离线本地运镜/拼图只接受栅格图），故按 PNG 魔数断言
+  const head = fs.readFileSync(abs).subarray(0, 8);
+  assert.ok(head.equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), '不是 PNG：' + abs);
+  assert.equal(out.mime, 'image/png', 'mime 应为 image/png');
 });
 await checkAsync('未知后端给出明确中文错误', async () => {
   await assert.rejects(() => generateImage({ prompt: 'x', backend: 'not-exist' }), /未知出图后端/);

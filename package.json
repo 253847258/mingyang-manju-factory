@@ -13,7 +13,10 @@
     "dev": "node --watch server.js",
     "check": "node tests/selfcheck.js",
     "check:secrets": "node scripts/check-secrets.mjs",
-    "data:prune": "node scripts/prune-data.mjs"
+    "data:prune": "node scripts/prune-data.mjs",
+    "test": "node scripts/run-tests.mjs --fast",
+    "test:fast": "node scripts/run-tests.mjs --fast",
+    "test:full": "node scripts/run-tests.mjs --full"
   },
   "optionalDependencies": {
     "sharp": "^0.35.5"

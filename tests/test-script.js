@@ -1,12 +1,14 @@
 // 模块3 自测：假小说 → 创建剧本 → 分集规划 → 单集剧本 → 分镜生成 → 编辑单镜 → 导出 4 格式
-// 运行：FACTORY_DB=/tmp/test-script-<随机>.db PORT=8892 node tests/test-script.js
+// 运行：npm run test:full（推荐，环境由 scripts/run-tests.mjs 统一注入）
+//      或手工：FACTORY_DB=<临时路径> PORT=8892 node tests/test-script.js
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 const RANDOM = Math.random().toString(36).slice(2, 8);
-const DB = process.env.FACTORY_DB || `/tmp/test-script-${RANDOM}.db`;
+// 注意：不要写死 /tmp —— Windows 下会解析成不存在的 C:\tmp\；统一用 os.tmpdir()
+const DB = process.env.FACTORY_DB || path.join(os.tmpdir(), `test-script-${RANDOM}.db`);
 process.env.FACTORY_DB = DB;
 const PORT = Number(process.env.PORT || 8892);
 const REAL_LLM = process.env.SKIP_REAL_LLM !== '1';

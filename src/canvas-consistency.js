@@ -146,7 +146,8 @@ async function scoreFiles(files, threshold) {
 }
 
 export async function scoreActor(actorId, { threshold = CONSISTENCY_THRESHOLD } = {}) {
-  const rows = all("SELECT * FROM actor_images WHERE actor_id = ? AND status = 'done' ORDER BY is_primary DESC, created_at DESC", actorId);
+  // 按 rowid 判序遍历（时钟回拨安全；口径见 tests/test-clock-skew.js）
+  const rows = all("SELECT * FROM actor_images WHERE actor_id = ? AND status = 'done' ORDER BY is_primary DESC, rowid DESC", actorId);
   const files = rows.map((r) => r.file_path || r.file_url).filter(Boolean);
   const r = await scoreFiles(files, threshold);
   return { ...r, scope: 'actor', id: actorId, images: files.length };

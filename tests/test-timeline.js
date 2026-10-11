@@ -26,6 +26,9 @@ fs.writeFileSync(process.env.FACTORY_CONFIG, JSON.stringify({
 }), 'utf8');
 
 const { migrate, get, all, run, DATA_DIR, ROOT: ROOT_T } = await import('../src/db.js');
+// finishEpisode/executeTimeline 返回的是**相对仓库根**的 filePath（relOf 口径），
+// 不能用 path.join(DATA_DIR, filePath) 拼——DATA_DIR 在仓库外（测试临时目录）时会拼错。
+const outAbs = (rel) => resolveAsset(rel) || path.join(DATA_DIR, rel);
 const T = await import('../src/timeline.js');
 const { generateVideo } = await import('../src/video.js');
 const { resolveAsset } = await import('../src/db.js');
@@ -235,7 +238,9 @@ const out = await T.executeTimeline({
   canvasId, params: { scriptId, code: 'S01E001', episodeId: epId },
   ctx: { log: (m) => steps.push(m), setProgress: (p, ex) => steps.push(`progress:${p}:${JSON.stringify(ex ?? null)}`) },
 });
-const abs = path.join(DATA_DIR, out.filePath);
+// out.filePath 是**相对仓库根**的路径（finishEpisode → relOf），不能拿 DATA_DIR 去拼；
+// 用 resolveAsset 统一解析，否则 DATA_DIR 在仓库外（测试临时目录）时会拼成 C:\AppData\...
+const abs = outAbs(out.filePath);
 ok('成片文件已产出', fs.existsSync(abs), out.filePath);
 const probe = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', abs], { encoding: 'utf8' }).trim();
 ok('成片时长 = 两段之和（约 5.5s）', Math.abs(Number(probe) - 5.5) < 0.6, `ffprobe=${probe}`);
@@ -259,7 +264,7 @@ const out2 = await T.executeTimeline({
   canvasId, params: { scriptId, code: 'S01E001', episodeId: epId },
 });
 run('ALTER TABLE episode_films_bak RENAME TO episode_films');
-ok('登记失败不影响成片（仍返回文件）', fs.existsSync(path.join(DATA_DIR, out2.filePath)), out2.filePath);
+ok('登记失败不影响成片（仍返回文件）', fs.existsSync(outAbs(out2.filePath)), out2.filePath);
 ok('登记失败时 filmId 为空但不抛错', out2.filmId === null, String(out2.filmId));
 
 console.log('\n=== 6. finish 参数覆盖配置 ===');
@@ -271,8 +276,8 @@ const out3 = await T.executeTimeline({
   node: { id: timelineNode, kind: 'timeline', data: JSON.stringify({ scriptId, code: 'S01E001E2', episodeId: epId, finish: { subtitles: false, audio: 'silent', fadeIn: 1, fadeOut: 1 } }) },
   canvasId,
 });   // 故意不传 params：验证回退到节点 data
-ok('节点参数覆盖全局 finish（fadeIn/fadeOut 生效后可正常出片）', fs.existsSync(path.join(DATA_DIR, out3.filePath)), out3.filePath);
-const probeStreams = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', path.join(DATA_DIR, out3.filePath)], { encoding: 'utf8' }).trim();
+ok('节点参数覆盖全局 finish（fadeIn/fadeOut 生效后可正常出片）', fs.existsSync(outAbs(out3.filePath)), out3.filePath);
+const probeStreams = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', outAbs(out3.filePath)], { encoding: 'utf8' }).trim();
 ok('subtitles:false 时不产生字幕流', !probeStreams.includes('subtitle'), `streams=${probeStreams.replace(/\n/g, '+')}`);
 ok('未使用的旧变量不会污染（origFinish 可用）', typeof origFinish === 'function');
 
@@ -533,7 +538,7 @@ relOfMt('video', pipNode, ovGreen);
 linkMt(pipNode, mtTl, 'overlay', 'ov1', 0);
 run(`UPDATE canvas_nodes SET data = ? WHERE id = ?`, JSON.stringify({ ...TR.overlayNodeDefaults('pip'), start: 1, end: 2, widthRatio: 0.32, position: '右下' }), pipNode);
 const mtOut = await T.executeTimeline({ node: { id: mtTl, kind: 'timeline', data: get('SELECT data FROM canvas_nodes WHERE id = ?', mtTl).data }, canvasId: CV_MT });
-const mtAbs = path.join(DATA_DIR, mtOut.filePath);
+const mtAbs = outAbs(mtOut.filePath);
 ok('多轨成片产出成功', fs.existsSync(mtAbs), mtOut.filePath);
 ok('成片时长 = 主轨之和（叠加轨不改变时长）', Math.abs(Number(execFileSync('ffprobe', ['-v','error','-show_entries','format=duration','-of','csv=p=0', mtAbs], {encoding:'utf8'}).trim()) - 5) < 0.6,
   execFileSync('ffprobe', ['-v','error','-show_entries','format=duration','-of','csv=p=0', mtAbs], {encoding:'utf8'}).trim());
@@ -557,7 +562,7 @@ const fullNode = mkMt('overlay', '全屏叠加', { mode: 'full', position: '居�
 relOfMt('video', fullNode, ovYellow);
 linkMt(fullNode, mtTl2, 'overlay', 'ov1', 0);
 const mtOut2 = await T.executeTimeline({ node: { id: mtTl2, kind: 'timeline', data: get('SELECT data FROM canvas_nodes WHERE id = ?', mtTl2).data }, canvasId: CV_MT });
-const mtAbs2 = path.join(DATA_DIR, mtOut2.filePath);
+const mtAbs2 = outAbs(mtOut2.filePath);
 const fullOn = sampleAt(mtAbs2, 3.0, { x: 60, y: 45, w: 40, h: 30 });
 const fullOff = sampleAt(mtAbs2, 0.8, { x: 60, y: 45, w: 40, h: 30 });
 ok('全屏叠加在时间窗内覆盖主画面（偏黄：红绿高、蓝低）', fullOn[0] > 120 && fullOn[1] > 120 && fullOn[2] < 110, `rgb=(${fullOn[0]},${fullOn[1]},${fullOn[2]})`);
@@ -572,7 +577,7 @@ const wmNode = mkMt('overlay', '水印', { mode: 'watermark', position: '左上'
 relOfMt('image', wmNode, ovPng);
 linkMt(wmNode, mtTl3, 'overlay', 'ov1', 0);
 const mtOut3 = await T.executeTimeline({ node: { id: mtTl3, kind: 'timeline', data: get('SELECT data FROM canvas_nodes WHERE id = ?', mtTl3).data }, canvasId: CV_MT });
-const mtAbs3 = path.join(DATA_DIR, mtOut3.filePath);
+const mtAbs3 = outAbs(mtOut3.filePath);
 const wmDur = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', mtAbs3], { encoding: 'utf8' }).trim());
 const wmTl = sampleAt(mtAbs3, 0.2, { x: 4, y: 4, w: 30, h: 20 });
 const wmTr = sampleAt(mtAbs3, Math.max(0.6, Math.min(1.2, wmDur - 0.3)), { x: 4, y: 4, w: 30, h: 20 });
@@ -593,7 +598,7 @@ relOfMt('image', wm2, ovPng);
 linkMt(pip2, mtTl4, 'overlay', 'ov1', 0);
 linkMt(wm2, mtTl4, 'overlay', 'ov2', 0);
 const mtOut4 = await T.executeTimeline({ node: { id: mtTl4, kind: 'timeline', data: get('SELECT data FROM canvas_nodes WHERE id = ?', mtTl4).data }, canvasId: CV_MT });
-const mtAbs4 = path.join(DATA_DIR, mtOut4.filePath);
+const mtAbs4 = outAbs(mtOut4.filePath);
 ok('两条叠加轨一次合成（composed.applied = 2）', mtOut4.tracks?.composed?.applied === 2, JSON.stringify(mtOut4.tracks?.composed));
 const both1 = sampleAt(mtAbs4, 1.5, { x: 112, y: 82, w: 36, h: 26 });
 const both2 = sampleAt(mtAbs4, 1.5, { x: 4, y: 4, w: 30, h: 20 });
@@ -612,7 +617,7 @@ const subData = JSON.parse(get('SELECT data FROM canvas_nodes WHERE id = ?', sub
 ok('字幕轨节点产出 SRT 文件', Boolean(subData.lastFile) && subData.lastFile.endsWith('.srt'), String(subData.lastFile));
 linkMt(subNode2, mtTl5, 'subtitle', 'sub', 0);
 const mtOut5 = await T.executeTimeline({ node: { id: mtTl5, kind: 'timeline', data: get('SELECT data FROM canvas_nodes WHERE id = ?', mtTl5).data }, canvasId: CV_MT });
-const mtAbs5 = path.join(DATA_DIR, mtOut5.filePath);
+const mtAbs5 = outAbs(mtOut5.filePath);
 ok('成片使用画布字幕轨（报告 subtitle.source = canvas-track）', mtOut5.subtitles?.source === 'canvas-track' && mtOut5.subtitles?.cues === 2,
   JSON.stringify(mtOut5.subtitles));
 ok('字幕轨确实被应用（applied=true 且 mode 正确）', mtOut5.subtitles?.applied === true && mtOut5.subtitles?.mode === 'hard',
@@ -628,7 +633,7 @@ const bottomBar = (f) => execFileSync('ffmpeg', ['-v', 'error', '-ss', '0.5', '-
   '-vf', 'crop=160:40:0:80,scale=1:1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'],
   { encoding: 'buffer', stdio: ['ignore', 'pipe', 'ignore'] }).slice(0, 3);
 const barWith = bottomBar(mtAbs5);
-const barWithout = bottomBar(path.join(DATA_DIR, mtOut5b.filePath));
+const barWithout = bottomBar(outAbs(mtOut5b.filePath));
 ok('硬字幕确实烧进画面（底部字幕条带像素与无字幕版不同）',
   (barWith[0] !== barWithout[0] || barWith[1] !== barWithout[1] || barWith[2] !== barWithout[2])
   && (barWith[1] > barWithout[1] || barWith[2] > barWithout[2]),
@@ -644,7 +649,7 @@ relOfMt('video', mA6, base1);
 linkMt(mA6, mtTl6, 'clip', 'clip1', 0);
 linkMt(subSoft, mtTl6, 'subtitle', 'sub', 0);
 const mtOut6 = await T.executeTimeline({ node: { id: mtTl6, kind: 'timeline', data: get('SELECT data FROM canvas_nodes WHERE id = ?', mtTl6).data }, canvasId: CV_MT });
-const streams6 = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', path.join(DATA_DIR, mtOut6.filePath)], { encoding: 'utf8' }).trim();
+const streams6 = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', outAbs(mtOut6.filePath)], { encoding: 'utf8' }).trim();
 ok('软字幕轨成片带独立字幕流', streams6.includes('subtitle'), `${streams6.replace(/\n/g, '+')} | ${JSON.stringify(mtOut6.subtitles)}`);
 
 // ⑦ 诚实报错：叠加轨/字幕轨没产出就执行 → 中文错
@@ -736,7 +741,7 @@ const outAudio = await T.executeTimeline({
 ok('成片识别到画布提供的配音（audioPlan.providedDubs = 1）', outAudio.audioPlan?.providedDubs === 1, JSON.stringify(outAudio.audioPlan));
 ok('音轨模式为配音（tts 或 tts_bgm）', ['tts', 'tts_bgm'].includes(outAudio.audioPlan?.mode), String(outAudio.audioPlan?.mode));
 ok('成片音轨报告里有一条来自画布的配音', (outAudio.audio?.ttsReport?.provided || 0) === 1, JSON.stringify(outAudio.audio?.ttsReport?.provided));
-const audioStreams1 = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', path.join(DATA_DIR, outAudio.filePath)], { encoding: 'utf8' }).trim();
+const audioStreams1 = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', outAbs(outAudio.filePath)], { encoding: 'utf8' }).trim();
 ok('成片确实带音轨', audioStreams1.includes('audio'), audioStreams1.replace(/\n/g, '+'));
 
 // ④ 背景乐节点 → 成片 bgm 端口 → 混音（人声处 ducking）
@@ -758,7 +763,7 @@ const outMix = await T.executeTimeline({
 });
 ok('配音 + 背景乐 → 混音模式（含 ducking）', outMix.audioPlan?.mode === 'tts_bgm' && outMix.audio?.mode === 'mix', JSON.stringify({ plan: outMix.audioPlan?.mode, mode: outMix.audio?.mode }));
 ok('混音报告带背景乐文件名与 ducking 标记', Boolean(outMix.audio?.bgm) && outMix.audio?.ducking === true, JSON.stringify({ bgm: outMix.audio?.bgm, ducking: outMix.audio?.ducking }));
-const streamsMix = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', path.join(DATA_DIR, outMix.filePath)], { encoding: 'utf8' }).trim();
+const streamsMix = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', outAbs(outMix.filePath)], { encoding: 'utf8' }).trim();
 ok('混音成片带音轨', streamsMix.includes('audio'), streamsMix.replace(/\n/g, '+'));
 
 // ⑤ 只接背景乐（没有配音）→ 纯 bgm 模式
@@ -774,7 +779,7 @@ const outBgm = await T.executeTimeline({
   canvasId,
 });
 ok('只有背景乐时进入 bgm 模式', outBgm.audioPlan?.mode === 'bgm' && outBgm.audio?.mode === 'bgm', JSON.stringify(outBgm.audioPlan));
-ok('纯音乐成片带音轨', execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', path.join(DATA_DIR, outBgm.filePath)], { encoding: 'utf8' }).includes('audio'));
+ok('纯音乐成片带音轨', execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', outAbs(outBgm.filePath)], { encoding: 'utf8' }).includes('audio'));
 
 // ⑥ 背景乐连线存在但上游没产物 → 报中文错（不静默变静音）
 const tl5 = mkNode('timeline', { scriptId, code: 'S01E105', episodeId: epId }, '成片·缺背景乐');

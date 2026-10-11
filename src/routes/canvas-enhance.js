@@ -53,7 +53,8 @@ function resolveSceneNode(nodeId) {
 function actorRefImage(actor) {
   const ref = actor.ref_image || '';
   if (ref && RASTER_RE.test(ref)) return ref;
-  const primary = all("SELECT * FROM actor_images WHERE actor_id = ? AND status = 'done' AND is_primary = 1 ORDER BY created_at DESC LIMIT 1", actor.id)[0];
+  // 按 rowid 判序遍历（时钟回拨安全；口径见 tests/test-clock-skew.js）
+  const primary = all("SELECT * FROM actor_images WHERE actor_id = ? AND status = 'done' AND is_primary = 1 ORDER BY rowid DESC LIMIT 1", actor.id)[0];
   if (primary && RASTER_RE.test(primary.file_path || '')) return primary.file_path;
   return null;
 }

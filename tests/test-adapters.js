@@ -25,12 +25,23 @@ const { synthesize, ttsStatus } = await import('../src/tts.js');
 
 migrate();
 
-let pass = 0, fail = 0;
+let pass = 0, fail = 0, skipped = 0;
 const ok = (name, cond, extra = '') => {
   if (cond) { pass++; console.log(`  ✓ ${name}${extra ? `  ${extra}` : ''}`); }
   else { fail++; console.log(`  ✗ ${name}${extra ? `  ${extra}` : ''}`); }
 };
 const need = (cond, msg) => { if (!cond) throw new Error(msg); };
+const skip = (name, why = '') => { skipped++; console.log(`  ⤼ [跳过] ${name}${why ? `  ${why}` : ''}`); };
+
+// 宿主能力探测：自带 ffmpeg 是 essentials 构建，**可能不含 SVG 解码器**（librsvg）。
+// 没有它就无法把 SVG 栅格化成 PNG —— 那几条断言按"宿主不支持"跳过，而不是误判成产品缺陷。
+const SVG_DECODER_OK = (() => {
+  try {
+    const out = spawnSync('ffmpeg', ['-hide_banner', '-decoders'], { encoding: 'utf8' });
+    return /\bsvg\b|librsvg/i.test(`${out.stdout || ''}${out.stderr || ''}`);
+  } catch { return false; }
+})();
+const NO_SVG_WHY = '（本机 ffmpeg 未编译 SVG 解码器；占位出图已改 PNG，不再依赖这条路径）';
 
 // ---------------- 假厂商服务端 ----------------
 const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
@@ -1093,19 +1104,27 @@ ok('魔数嗅探：非图片内容 → null（按「厂商不支持」处理，�
 const svgRef = path.join(DATA_TMP, 'ref-src.svg');
 fs.writeFileSync(svgRef, '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#123456"/></svg>');
 const prepSvg = readImageForVendor(svgRef);
-ok('readImageForVendor：SVG 被本机栅格化为真 PNG（首 8 字节是 PNG 魔数）',
-  prepSvg.ok && prepSvg.mime === 'image/png' && prepSvg.rasterized === true
-  && Buffer.from(prepSvg.base64, 'base64').subarray(0, 8).equals(PNG_MAGIC),
-  `mime=${prepSvg.mime} rasterized=${prepSvg.rasterized} 首字节=${Buffer.from(prepSvg.base64, 'base64').subarray(0, 4).toString('hex')}`);
+if (SVG_DECODER_OK) {
+  ok('readImageForVendor：SVG 被本机栅格化为真 PNG（首 8 字节是 PNG 魔数）',
+    prepSvg.ok && prepSvg.mime === 'image/png' && prepSvg.rasterized === true
+    && Buffer.from(prepSvg.base64, 'base64').subarray(0, 8).equals(PNG_MAGIC),
+    `mime=${prepSvg.mime} rasterized=${prepSvg.rasterized} 首字节=${Buffer.from(prepSvg.base64, 'base64').subarray(0, 4).toString('hex')}`);
+} else {
+  skip('readImageForVendor：SVG 被本机栅格化为真 PNG', NO_SVG_WHY);
+}
 ok('readImageForVendor：栅格化给出中文说明（便于落库留痕）', /栅格化/.test(prepSvg.note), prepSvg.note.slice(0, 90));
 // cacheDir 必须真的生效：调用方（src/image.js / src/video.js）会传 DATA_DIR/cache/refs，
 // 若被忽略就会落到系统临时目录 —— 那样「清理缓存」「磁盘占用」都管不到它（本轮实测踩过这个坑）
 {
   const cacheDir = path.join(DATA_TMP, 'cache', 'refs');
   const prepCached = readImageForVendor(svgRef, { cacheDir });
-  ok('readImageForVendor：cacheDir 参数真的生效（栅格化落盘到指定目录，而不是系统临时目录）',
-    prepCached.ok && prepCached.rasterized === true && path.dirname(prepCached.abs) === cacheDir && fs.existsSync(prepCached.abs),
-    `${prepCached.abs}（期望目录 ${cacheDir}）`);
+  if (SVG_DECODER_OK) {
+    ok('readImageForVendor：cacheDir 参数真的生效（栅格化落盘到指定目录，而不是系统临时目录）',
+      prepCached.ok && prepCached.rasterized === true && path.dirname(prepCached.abs) === cacheDir && fs.existsSync(prepCached.abs),
+      `${prepCached.abs}（期望目录 ${cacheDir}）`);
+  } else {
+    skip('readImageForVendor：cacheDir 参数真的生效', NO_SVG_WHY);
+  }
 }
 ok('readImageForVendor：栅格化按内容哈希缓存（第二次命中缓存不再调 ffmpeg）', readImageForVendor(svgRef).abs === prepSvg.abs, prepSvg.abs);
 const prepTxtPath = path.join(DATA_TMP, 'not-image.bin');
@@ -1124,15 +1143,20 @@ ok('readImageForVendor：非图片（如 mp4）也不会被静默丢成空串（
 // 14.1 出图：SVG 参考图 → 栅格化成 PNG 后发送，且不再声明成 image/png 却发 SVG 字节
 resetReq();
 setCfg({ image: { ...IMG_GENERIC.image, generic: { ...IMG_GENERIC.image.generic, refImageFormat: 'dataurl', refImageField: 'image' } } });
-const imgSvg = await generateImage({ actorId: 'C-0001', kind: 'costume', variant: 'svg-ref', prompt: 'svg ref', refImage: svgRef });
-const svgSent = String(state.lastRequest?.body?.image || '');
-ok('出图·SVG 参考图：发出的 data URL 里是真 PNG 字节（不是 SVG 冒充 PNG）',
-  svgSent.startsWith('data:image/png;base64,') && Buffer.from(svgSent.split(',')[1] || '', 'base64').subarray(0, 8).equals(PNG_MAGIC),
-  svgSent.slice(0, 30));
-ok('出图·SVG 参考图：结果留痕 refImageRasterized=true / refImageMime=image/png / usedTemplate=i2i',
-  imgSvg.refImageRasterized === true && imgSvg.refImageMime === 'image/png' && imgSvg.usedTemplate === 'i2i',
-  JSON.stringify({ rasterized: imgSvg.refImageRasterized, mime: imgSvg.refImageMime, used: imgSvg.usedTemplate }));
-ok('出图·SVG 参考图：notes 里有中文栅格化说明', (imgSvg.notes || []).some((n) => /栅格化/.test(n)), (imgSvg.notes || []).join(' | ').slice(0, 110));
+if (SVG_DECODER_OK) {
+  // 只有宿主 ffmpeg 能解 SVG 时才可能栅格化；否则 generateImage 会直接抛错
+  const imgSvg = await generateImage({ actorId: 'C-0001', kind: 'costume', variant: 'svg-ref', prompt: 'svg ref', refImage: svgRef });
+  const svgSent = String(state.lastRequest?.body?.image || '');
+  ok('出图·SVG 参考图：发出的 data URL 里是真 PNG 字节（不是 SVG 冒充 PNG）',
+    svgSent.startsWith('data:image/png;base64,') && Buffer.from(svgSent.split(',')[1] || '', 'base64').subarray(0, 8).equals(PNG_MAGIC),
+    svgSent.slice(0, 30));
+  ok('出图·SVG 参考图：结果留痕 refImageRasterized=true / refImageMime=image/png / usedTemplate=i2i',
+    imgSvg.refImageRasterized === true && imgSvg.refImageMime === 'image/png' && imgSvg.usedTemplate === 'i2i',
+    JSON.stringify({ rasterized: imgSvg.refImageRasterized, mime: imgSvg.refImageMime, used: imgSvg.usedTemplate }));
+  ok('出图·SVG 参考图：notes 里有中文栅格化说明', (imgSvg.notes || []).some((n) => /栅格化/.test(n)), (imgSvg.notes || []).join(' | ').slice(0, 110));
+} else {
+  skip('出图·SVG 参考图：真 PNG 字节 / 留痕 / 中文说明（3 条）', NO_SVG_WHY);
+}
 
 // 14.2 出图：JPEG 参考图 → 声明成 image/jpeg（不再一律谎报 png）
 resetReq();
@@ -1175,16 +1199,20 @@ const realSpawn = utilMod.rasterizeSvgToPng;
 // 14.4 视频：首帧（关键帧）是 SVG 占位图时同口径栅格化
 resetReq();
 setCfg({ video: { ...VIDEO_GENERIC.video, generic: { ...VIDEO_GENERIC.video.generic, refImageFormat: 'dataurl', bodyTemplate: '{"model":"{{model}}","prompt":"{{prompt}}","image":"{{refImage}}","duration":{{duration}}}' } } });
-const vidSvg = await generateVideo({ scriptId: 'SC-A', code: 'S01E001', shotId: 'SH-SVG', prompt: 'svg keyframe', duration: 3, keyframe: svgRef });
-const vidSent = String(reqOf('/vendor/video')?.body?.image || '');
-ok('视频·SVG 首帧：同样按真实类型处理，发出的是真 PNG 字节',
-  vidSvg?.ok === true && vidSent.startsWith('data:image/png;base64,') && Buffer.from(vidSent.split(',')[1] || '', 'base64').subarray(0, 8).equals(PNG_MAGIC),
-  vidSent.slice(0, 30));
-ok('视频·SVG 首帧：notes 里有中文栅格化说明', (vidSvg?.notes || []).some((n) => /栅格化/.test(n)), (vidSvg?.notes || []).join(' | ').slice(0, 110));
+if (SVG_DECODER_OK) {
+  const vidSvg = await generateVideo({ scriptId: 'SC-A', code: 'S01E001', shotId: 'SH-SVG', prompt: 'svg keyframe', duration: 3, keyframe: svgRef });
+  const vidSent = String(reqOf('/vendor/video')?.body?.image || '');
+  ok('视频·SVG 首帧：同样按真实类型处理，发出的是真 PNG 字节',
+    vidSvg?.ok === true && vidSent.startsWith('data:image/png;base64,') && Buffer.from(vidSent.split(',')[1] || '', 'base64').subarray(0, 8).equals(PNG_MAGIC),
+    vidSent.slice(0, 30));
+  ok('视频·SVG 首帧：notes 里有中文栅格化说明', (vidSvg?.notes || []).some((n) => /栅格化/.test(n)), (vidSvg?.notes || []).join(' | ').slice(0, 110));
+} else {
+  skip('视频·SVG 首帧：真 PNG 字节 / 中文说明（2 条）', NO_SVG_WHY);
+}
 
 await new Promise((r) => apiServer.close(r));
 
-console.log(`\n=== 结果：${pass} 通过 / ${fail} 失败 ===`);
+console.log(`\n=== 结果：${pass} 通过 / ${fail} 失败${skipped ? ` / 跳过 ${skipped}` : ''} ===`);
 server.close();
 try {
   fs.rmSync(DB, { force: true }); fs.rmSync(DB + '-wal', { force: true }); fs.rmSync(DB + '-shm', { force: true });
