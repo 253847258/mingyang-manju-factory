@@ -159,6 +159,19 @@ const fmtWords = (n) => (num(n) >= 10000 ? `${(num(n) / 10000).toFixed(1)} 万�
 const badge = (text, kind = '') => `<span class="nv-badge${kind ? ` nv-badge-${kind}` : ''}">${esc(text)}</span>`;
 const STATUS_LABEL = { outline: '待写', writing: '写作中', done: '已完成', error: '失败', draft: '草稿' };
 const statusBadge = (s) => badge(STATUS_LABEL[s] || s || '—', s === 'done' ? 'ok' : s === 'error' ? 'err' : s === 'writing' ? 'warn' : '');
+const chapterWriteStatus = (c) => {
+  const words = num(c?.words, 0);
+  if (c?.status !== 'done') return 'pending';
+  if (words < CHAPTER_WRITE_MIN_WORDS) return 'under';
+  if (words > CHAPTER_WRITE_MAX_WORDS) return 'over';
+  return 'ok';
+};
+const chapterWordBadge = (c) => {
+  const s = chapterWriteStatus(c);
+  if (s === 'under') return badge(`${fmtWords(c.words || 0)} 不足`, 'warn');
+  if (s === 'over') return badge(`${fmtWords(c.words || 0)} 超长`, 'warn');
+  return badge(fmtWords(c.words || 0), s === 'ok' ? 'ok' : '');
+};
 
 function toast(msg, type = 'info') { try { S.ctx.toast(msg, type); } catch { /* ignore */ } }
 
@@ -762,7 +775,7 @@ function chaptersHtml() {
       <div class="nv-chlist">
         ${chs.map((c) => `<div class="nv-ch ${S.chapterIdx === c.idx ? 'nv-on' : ''}" data-act="read" data-idx="${c.idx}">
           <i>${c.idx}</i><b title="${esc(c.title || '')}">${esc(c.title || '未命名')}</b>
-          ${badge(c.status === 'done' ? `${fmtWords(c.words)}` : (STATUS_LABEL[c.status] || c.status), c.status === 'done' ? 'ok' : c.status === 'error' ? 'err' : '')}
+          ${c.status === 'done' ? chapterWordBadge(c) : badge(STATUS_LABEL[c.status] || c.status, c.status === 'error' ? 'err' : '')}
         </div>`).join('')}
       </div>
       <div class="nv-grow">${readerHtml()}</div>
@@ -778,7 +791,7 @@ function readerHtml() {
   const paras = hasContent ? String(c.content).split(/\n+/).filter((p) => p.trim()) : [];
   return `<div class="nv-card" style="padding:10px">
     <div class="nv-card-t">第 ${c.idx} 章　${esc(c.title || '')}
-      ${statusBadge(c.status)}<span class="nv-pill">${fmtWords(c.words || 0)}</span>
+      ${statusBadge(c.status)}${c.status === 'done' ? chapterWordBadge(c) : ''}
       ${c.model ? `<span class="nv-pill">${esc(c.model)}</span>` : ''}
       <span class="nv-grow"></span>
       ${S.editing ? `<button class="nv-btn nv-btn-p nv-btn-sm" data-act="save-chapter">保存</button><button class="nv-btn nv-btn-sm" data-act="cancel-edit">取消</button>`
@@ -787,6 +800,8 @@ function readerHtml() {
       <button class="nv-btn nv-btn-sm nv-btn-d" data-act="del-chapter" data-idx="${c.idx}">删除</button>
     </div>
     ${c.error ? `<div class="nv-warn" style="margin-bottom:8px">上次失败：${esc(c.error)}</div>` : ''}
+    ${hasContent && chapterWriteStatus(c) === 'under' ? `<div class="nv-warn" style="margin-bottom:8px">本章正文 ${num(c.words, 0)} 字，低于 ${CHAPTER_WRITE_MIN_WORDS} 字目标；点「↻ 重写」可按 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字重新生成。</div>` : ''}
+    ${hasContent && chapterWriteStatus(c) === 'over' ? `<div class="nv-warn" style="margin-bottom:8px">本章正文 ${num(c.words, 0)} 字，超过 ${CHAPTER_WRITE_MAX_WORDS} 字目标；点「↻ 重写」可压缩到目标范围。</div>` : ''}
     ${c.summary ? `<div class="nv-note" style="margin-bottom:8px"><b>大纲：</b>${esc(c.summary)}<br><b>章末钩子：</b>${esc(c.cliffhanger || c.hook || '—')}　<b>人物：</b>${esc((c.characters || []).join('、') || '—')}　<b>地点：</b>${esc((c.locations || []).join('、') || '—')}</div>` : ''}
     ${S.editing
       ? `<textarea class="nv-area" id="nv-content" data-role="content" rows="22" style="min-height:46vh">${esc(c.content || '')}</textarea>
@@ -1508,8 +1523,16 @@ async function onClickEvent(e) {
     case 'cancel-edit': S.editing = false; render(); return;
     case 'save-chapter': {
       const content = readVal('content');
-      const r = await guard(async () => S.ctx.api.put(`/api/novels/${S.currentId}/chapters/${S.chapterIdx}`, { content }), '已保存');
-      if (r) { S.editing = false; await loadChapter(S.chapterIdx); await reloadDetail(); }
+      const r = await guard(async () => S.ctx.api.put(`/api/novels/${S.currentId}/chapters/${S.chapterIdx}`, { content }));
+      if (r) {
+        S.editing = false;
+        await loadChapter(S.chapterIdx);
+        await reloadDetail();
+        const words = num(r.words ?? r.chapter?.words, 0);
+        toast(words < CHAPTER_WRITE_MIN_WORDS || words > CHAPTER_WRITE_MAX_WORDS
+          ? `已保存，但正文 ${words} 字不在 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字范围`
+          : '已保存', words < CHAPTER_WRITE_MIN_WORDS || words > CHAPTER_WRITE_MAX_WORDS ? 'warn' : 'ok');
+      }
       return;
     }
     case 'del-chapter': {
