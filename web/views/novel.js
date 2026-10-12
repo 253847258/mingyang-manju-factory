@@ -1034,7 +1034,8 @@ async function startOutlineGen() {
       num(S.detail?.novel?.planned_chapters, 0),
       Math.ceil(num(S.detail?.novel?.target_words, 0) / Math.max(1, num(S.detail?.novel?.chapter_words, 2000))),
     ));
-    const useFallback = await S.ctx.confirm(`整份大纲 JSON 生成失败：${primary.__error}\n\n是否切换为稳健模式？将分 ${Math.ceil(planned / 20)} 批逐章规划，再逐节补齐非章节内容。会调用更多次 LLM，但不会因一次 JSON 截断而全部作废。`);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const useFallback = await confirmOutlineFallback(`整份大纲 JSON 生成失败：${primary.__error}\n\n是否切换为稳健模式？将分 ${Math.ceil(planned / 20)} 批逐章规划，再逐节补齐非章节内容。`);
     if (!useFallback) { toast(`大纲生成失败：${primary.__error}`, 'err'); return; }
     r = await guard(async () => {
       let last = null;
@@ -1615,6 +1616,35 @@ function showLlmHelp() {
   body.appendChild(bar);
   bar.querySelector('[data-a="no"]').onclick = () => m.close();
   bar.querySelector('[data-a="go"]').onclick = () => { m.close(); stopWatching(); S.ctx.go('settings'); };
+}
+
+function confirmOutlineFallback(message) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const body = document.createElement('div');
+    body.innerHTML = `<div class="nv-warn" style="line-height:1.8;white-space:pre-wrap">${esc(message)}</div>
+      <div class="nv-note" style="margin-top:10px;line-height:1.8">
+        稳健模式会按每批 20 章逐章规划，并补齐非章节大纲。调用次数会明显增加，但可以避开整份 JSON 截断导致的整体失败。
+      </div>`;
+    const m = S.ctx.modal({
+      title: '整份大纲生成失败',
+      body,
+      width: 620,
+      onClose: () => finish(false),
+    });
+    const bar = document.createElement('div');
+    bar.className = 'nv-row';
+    bar.style.marginTop = '10px';
+    bar.innerHTML = '<button class="nv-btn nv-btn-a" data-a="ok">切换稳健模式</button><button class="nv-btn" data-a="no">取消</button>';
+    body.appendChild(bar);
+    bar.querySelector('[data-a="no"]').onclick = () => m.close();
+    bar.querySelector('[data-a="ok"]').onclick = () => { finish(true); m.close(); };
+  });
 }
 
 function onChangeEvent(e) {
