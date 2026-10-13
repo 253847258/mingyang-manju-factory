@@ -16,7 +16,7 @@ const safeJson = (v, fallback) => {
 };
 
 export const CHARACTER_FREE_DEFAULTS = Object.freeze({
-  enabled: false,
+  enabled: true,
   maxCharacters: 20,
   stylePolicy: 'plot-driven',
   autoCreate: true,

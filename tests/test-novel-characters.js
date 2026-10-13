@@ -49,9 +49,9 @@ run(`INSERT INTO novel_outlines(id, novel_id, version, status, payload, raw, mod
 }), '', 'mock', 0, 0, now, now);
 
 console.log('\n=== 1. 模式设置 ===');
-await check('默认关闭，读取小说级角色容量', async () => {
+await check('默认开启，读取小说级角色容量', async () => {
   const mode = characterFreeMode('N-CHAR');
-  assert.equal(mode.enabled, false);
+  assert.equal(mode.enabled, true);
   assert.equal(mode.maxCharacters, 6);
   assert.equal(mode.availableCharacters, 6);
   return `${mode.currentCharacters}/${mode.castSize}`;

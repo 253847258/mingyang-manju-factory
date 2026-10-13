@@ -305,6 +305,9 @@ function applyFormFromNovel(n) {
     pov: n.pov || 'third-limited', seasons: num(n.seasons, 1), framework_intro: n.framework_intro || '',
     ref_doc_path: n.ref_doc_path || '', ref_doc_name: n.ref_doc_name || '',
     actor_ids: (n.actor_ids || []).slice(), custom_actors: (n.custom_actors || []).map((c) => ({ ...c })),
+    free_mode: S.freeMode?.enabled !== false,
+    free_max: num(S.freeMode?.maxCharacters, num(n.cast_size, 20)),
+    free_style: S.freeMode?.stylePolicy || 'plot-driven',
   };
 }
 
@@ -315,6 +318,7 @@ function newForm() {
     cast_size: limits().castSize.default, target_words: limits().targetWords.default,
     chapter_words: limits().chapterWords.default, pov: S.povs[0]?.id || 'third-limited', seasons: 1,
     framework_intro: '', ref_doc_path: '', ref_doc_name: '', actor_ids: [], custom_actors: [],
+    free_mode: true, free_max: limits().castSize.default, free_style: 'plot-driven',
   };
 }
 const castTotal = () => (S.form?.actor_ids?.length || 0) + (S.form?.custom_actors?.length || 0);
@@ -453,6 +457,27 @@ function formHtml(mode) {
       </div>
     </div>
 
+    <div class="nv-note" style="margin-top:10px">
+      <div class="nv-row">
+        <label class="nv-row" style="cursor:pointer"><input type="checkbox" data-role="free_mode" ${f.free_mode !== false ? 'checked' : ''}> <b>角色自由模式（默认开启）</b></label>
+        <label class="nv-f"><span class="nv-lbl">最多按剧情新增</span><input class="nv-input nv-num" data-role="free-max" type="number" min="1" max="${num(f.cast_size, 20)}" value="${num(f.free_max, num(f.cast_size, 20))}"></label>
+        <label class="nv-f" style="min-width:190px"><span class="nv-lbl">角色风格策略</span>
+          <select class="nv-select" data-role="free-style">
+            ${[
+              ['plot-driven', '根据剧情需要（推荐）'],
+              ['cinematic-real', '电影写实'],
+              ['guoman-real', '国漫写实'],
+              ['anime', '二次元动画'],
+              ['ink', '水墨国风'],
+            ].map(([id, label]) => `<option value="${id}" ${(f.free_style || 'plot-driven') === id ? 'selected' : ''}>${label}</option>`).join('')}
+          </select>
+        </label>
+        <button class="nv-btn nv-btn-a" data-act="auto-characters">AI 按剧情补齐角色</button>
+        <span class="nv-pill">已有 ${S.freeMode?.currentCharacters ?? total}/${num(f.cast_size, 20)} · 可新增 ${S.freeMode?.availableCharacters ?? Math.max(0, num(f.cast_size, 20) - total)}</span>
+      </div>
+      <div class="nv-hint" style="margin-top:5px">开启并保存后，AI 会结合故事大纲、章首章末和故事线自动发现剧情缺口，创建详细角色档案，并归档为本小说专属引用；不会自动生成定妆图。</div>
+    </div>
+
     <div class="nv-step" style="margin-top:14px"><em>3</em>故事框架介绍 与 参考范本
       <span class="nv-grow"></span>
       <button class="nv-btn nv-btn-sm" data-act="ai-framework" title="调用 1 次 LLM，生成故事框架、标题和角色建议">✨ AI 自动填写</button>
@@ -513,33 +538,9 @@ function workspaceHtml() {
       </div>
       ${jobBarHtml()}
       ${assetIndexHtml()}
-      ${freeModeHtml()}
       <div class="nv-tabs" style="margin-top:10px">${tabs.map(([k, label]) => `<button class="nv-tab ${S.tab === k ? 'nv-on' : ''}" data-act="tab" data-tab="${k}">${esc(label)}</button>`).join('')}</div>
     </div>
     ${S.tab === 'params' ? formHtml('edit') : S.tab === 'outline' ? outlineHtml() : S.tab === 'chapters' ? chaptersHtml() : exportHtml()}`;
-}
-
-function freeModeHtml() {
-  const m = S.freeMode || { enabled: false, maxCharacters: num(S.detail?.novel?.cast_size, 20), stylePolicy: 'plot-driven', currentCharacters: 0, castSize: num(S.detail?.novel?.cast_size, 20), availableCharacters: num(S.detail?.novel?.cast_size, 20) };
-  return `<div class="nv-card" style="padding:8px 10px">
-    <div class="nv-row">
-      <button class="nv-btn ${m.enabled ? 'nv-btn-a' : ''}" data-act="toggle-free-mode">${m.enabled ? '角色自由模式：已开启' : '角色自由模式：已关闭'}</button>
-      <label class="nv-f"><span class="nv-lbl">最多按剧情新增</span><input class="nv-input nv-num" data-role="free-max" type="number" min="1" max="${m.castSize}" value="${m.maxCharacters}"></label>
-      <label class="nv-f" style="min-width:190px"><span class="nv-lbl">角色风格策略</span>
-        <select class="nv-select" data-role="free-style">
-          <option value="plot-driven" ${m.stylePolicy === 'plot-driven' ? 'selected' : ''}>根据剧情需要（推荐）</option>
-          <option value="cinematic-real" ${m.stylePolicy === 'cinematic-real' ? 'selected' : ''}>电影写实</option>
-          <option value="guoman-real" ${m.stylePolicy === 'guoman-real' ? 'selected' : ''}>国漫写实</option>
-          <option value="anime" ${m.stylePolicy === 'anime' ? 'selected' : ''}>二次元动画</option>
-          <option value="ink" ${m.stylePolicy === 'ink' ? 'selected' : ''}>水墨国风</option>
-        </select>
-      </label>
-      <button class="nv-btn" data-act="save-free-mode">保存模式</button>
-      <button class="nv-btn nv-btn-a" data-act="auto-characters">AI 按剧情补齐角色</button>
-      <span class="nv-pill">已有 ${m.currentCharacters}/${m.castSize} · 可新增 ${m.availableCharacters}</span>
-    </div>
-    <div class="nv-hint" style="margin-top:5px">开启后，AI 会结合故事大纲、章节章首章末和故事线自动发现剧情缺口，创建详细角色档案，并归档为当前小说专属引用；不会自动生成定妆图。</div>
-  </div>`;
 }
 
 function assetIndexHtml() {
@@ -873,6 +874,9 @@ function collectForm() {
   setIf('cast_size', 'cast_size'); setIf('seasons', 'seasons');
   setIf('target_words', 'target_words'); setIf('chapter_words', 'chapter_words');
   setIf('framework_intro', 'framework_intro');
+  setIf('free_mode', 'free_mode');
+  setIf('free-max', 'free_max');
+  setIf('free-style', 'free_style');
   // 自定义角色行
   const rows = S.root.querySelectorAll('[data-crow]');
   rows.forEach((row) => {
@@ -905,6 +909,12 @@ async function saveForm() {
   const saved = await guard(async () => {
     if (S.formMode === 'create') {
       const r = await S.ctx.api.post('/api/novels', payload);
+      await S.ctx.api.put(`/api/novels/${r.novel.id}/characters/free-mode`, {
+        enabled: f.free_mode !== false,
+        maxCharacters: num(f.free_max, num(f.cast_size, 20)),
+        stylePolicy: f.free_style || 'plot-driven',
+        autoCreate: true,
+      });
       await loadList();
       S.formMode = 'edit';
       await openNovel(r.novel.id);
@@ -912,6 +922,12 @@ async function saveForm() {
     }
     await S.ctx.api.put(`/api/novels/${S.currentId}`, payload);
     await S.ctx.api.post(`/api/novels/${S.currentId}/actors`, { actorIds: payload.actor_ids, customActors: payload.custom_actors });
+    await S.ctx.api.put(`/api/novels/${S.currentId}/characters/free-mode`, {
+      enabled: f.free_mode !== false,
+      maxCharacters: num(f.free_max, num(f.cast_size, 20)),
+      stylePolicy: f.free_style || 'plot-driven',
+      autoCreate: true,
+    });
     await reloadDetail();
     await loadList();
     return true;
