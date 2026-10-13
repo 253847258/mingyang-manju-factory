@@ -19,14 +19,29 @@ export const AI_MAX_REF_CHARS = 12000;
 
 const FRAMEWORK_FIELDS = [
   ['logline', '一句话故事'],
-  ['protagonist', '主角'],
-  ['goal', '主角目标'],
-  ['obstacle', '核心阻碍'],
-  ['worldview', '世界观'],
-  ['mainPlot', '主线'],
-  ['subplots', '支线'],
+  ['worldStyle', '世界风格'],
+  ['worldBackground', '基础背景与开放区域'],
+  ['worldRules', '底层规则体系'],
+  ['factionLayers', '势力分层'],
+  ['coreLoopCrisis', '持续循环危机'],
+  ['ultimateMystery', '终极世界谜团'],
+  ['protagonist', '主角是谁'],
+  ['protagonistSpecial', '主角特别之处'],
+  ['protagonistGrowth', '主角成长与代价'],
+  ['allyTeam', '主角固定小队'],
+  ['villainPyramid', '反派三层金字塔'],
+  ['neutralCharacters', '中立摇摆角色'],
+  ['mainPlot', '主线分段规划'],
+  ['seasonPlan', '分季锁坑规划'],
+  ['sidequests', '支线储备库'],
+  ['theme', '核心主题'],
+  ['toneStyle', '风格基调与受众'],
+  ['contentRules', '内容约束规则'],
+  ['rhythm', '叙事节奏与爽点反转'],
+  ['foreshadowRules', '伏笔管控规则'],
+  ['openingDirection', '开局方向'],
+  ['endingDirection', '结局方向'],
   ['highlights', '爆点'],
-  ['ending', '结局方向'],
 ];
 
 const ROLE_VALUES = new Set(['主角', '反派', '配角']);
@@ -74,6 +89,39 @@ function genreNameOf(input) {
   return genre?.name || text(input.genreName || input.genre || '未定题材', 40);
 }
 
+function genreProfileOf(input) {
+  const genre = genreById(input.genre);
+  return {
+    name: genre?.name || genreNameOf(input),
+    category: genre?.cat || '',
+    tone: genre?.tone || input.tone || '',
+    tags: Array.isArray(genre?.tags) ? genre.tags.slice(0, 10) : [],
+    hook: genre?.hook || '',
+    desc: genre?.desc || '',
+  };
+}
+
+export function scalePlanOf(input = {}) {
+  const target = Number(input.targetWords) || Number(input.target_words) || 1000000;
+  if (target < 100000) {
+    return { seasons: 1, band: '短篇', rule: '1 季完成阶段闭环；保留 1 个顶级谜团碎片，不强行展开无限续集。' };
+  }
+  if (target < 300000) {
+    return { seasons: 2, band: '中短篇', rule: '2 季：第 1 季入场与区域危机，第 2 季拓展真相；终极谜团不完整揭晓。' };
+  }
+  if (target < 600000) {
+    return { seasons: 3, band: '中长篇', rule: '3 季：每季解锁新区域与新势力，第 3 季只揭开终极谜团的一层。' };
+  }
+  if (target < 1200000) {
+    return { seasons: 5, band: '长篇', rule: '5 季：采用阶段目标递进，每季推翻一次旧认知，终极目标不得在前 3 季完成。' };
+  }
+  return {
+    seasons: Math.min(12, Math.max(6, Math.ceil(target / 300000))),
+    band: '超长篇',
+    rule: '6-12 季滚动扩展：持续开放新地图、新势力、新危机，伏笔分批释放和回收，为核心续作长期保留终极谜团。',
+  };
+}
+
 function povNameOf(input) {
   const pov = POVS.find((p) => p.id === input.pov || p.name === input.pov);
   return pov?.name || text(input.pov || '第三人称限知', 40);
@@ -115,7 +163,9 @@ export function readReferenceText(refDocPath, warnings = []) {
 }
 
 export function buildFrameworkPrompt(input = {}, refText = '') {
-  const genreName = genreNameOf(input);
+  const genre = genreProfileOf(input);
+  const genreName = genre.name;
+  const scale = scalePlanOf(input);
   const povName = povNameOf(input);
   const actorList = Array.isArray(input.actorList) ? input.actorList : [];
   const customActors = Array.isArray(input.customActors) ? input.customActors : [];
@@ -132,11 +182,17 @@ export function buildFrameworkPrompt(input = {}, refText = '') {
     '【当前项目参数】',
     `标题：${text(input.title, 40) || '（用户还没定标题，请你生成）'}`,
     `题材：${genreName}`,
-    `基调：${text(input.tone, 30) || '未定'}`,
+    `题材分类：${genre.category || '未定'}`,
+    `题材关键词：${genre.tags.join('、') || '无'}`,
+    `题材常用钩子：${text(genre.hook, 120) || '无'}`,
+    `题材说明：${text(genre.desc, 200) || '无'}`,
+    `基调：${text(input.tone || genre.tone, 30) || '未定'}`,
     `叙事视角：${povName}`,
-    `目标总字数：${Number(input.targetWords) || 1000000}`,
+    `目标总字数：${Number(input.targetWords) || 1000000}（${scale.band}）`,
     `单章字数：${Number(input.chapterWords) || 2000}`,
-    `季数：${Number(input.seasons) || 1}`,
+    `用户季数：${Number(input.seasons) || 1}`,
+    `建议季数：${scale.seasons}`,
+    `字数规模规则：${scale.rule}`,
     `角色规模上限：${Number(input.castSize) || 20}`,
     '',
     '【已选演员矩阵角色】',
@@ -154,14 +210,29 @@ export function buildFrameworkPrompt(input = {}, refText = '') {
       titleAlternatives: ['', ''],
       framework: {
         logline: '',
+        worldStyle: '',
+        worldBackground: '',
+        worldRules: '',
+        factionLayers: '',
+        coreLoopCrisis: '',
+        ultimateMystery: '',
         protagonist: '',
-        goal: '',
-        obstacle: '',
-        worldview: '',
+        protagonistSpecial: '',
+        protagonistGrowth: '',
+        allyTeam: '',
+        villainPyramid: '',
+        neutralCharacters: '',
         mainPlot: '',
-        subplots: '',
+        seasonPlan: '',
+        sidequests: '',
+        theme: '',
+        toneStyle: '',
+        contentRules: '',
+        rhythm: '',
+        foreshadowRules: '',
+        openingDirection: '',
+        endingDirection: '',
         highlights: '',
-        ending: '',
       },
       characters: [{
         name: '',
@@ -178,30 +249,52 @@ export function buildFrameworkPrompt(input = {}, refText = '') {
     }, null, 2),
     '',
     '【硬性要求】',
-    `1. 全部用中文；标题 1 个主标题 + 2 个备选，单个不超过 20 字，匹配题材和基调。`,
-    '2. 故事框架必须包含：一句话故事、主角、主角目标、核心阻碍、世界观、主线、支线、爆点、结局方向；总长度约 600~1200 中文字符。',
-    `3. 新角色最多 ${AI_MAX_NEW_CHARACTERS} 个；已有角色够用就返回空数组。`,
-    `4. 新角色不得与已有角色重名。已有角色名单：${existingNames.length ? existingNames.join('、') : '无'}。`,
-    '5. 每个新角色必须写清剧情作用；没有剧情作用的角色不要推荐。',
-    '6. 不要编造原文/参数里完全没有的重要设定；可以合理补全，但要服务于题材和基调。',
+    '1. 全部用中文；标题 1 个主标题 + 2 个备选，单个不超过 20 字，匹配题材和基调。',
+    '2. 必须严格按固定 7 模块写作：① 世界观体系 ② 人物矩阵 ③ 主线分段规划 ④ 支线储备库 ⑤ 故事基调、核心主题与受众规则 ⑥ 叙事节奏与爽点/反转设计 ⑦ 伏笔管控规则。',
+    '3. 世界观必须包含：基础背景、大量未开放区域、底层规则、表层/中层/深层势力、持续循环危机、终极世界谜团。',
+    '4. 人物矩阵必须包含：主角身份/执念/特别之处/成长代价、固定小队、三层反派金字塔、中立摇摆角色。',
+    '5. 必须根据目标总字数自动规划季数和阶段目标；长篇及以上不得在前 3 季完成终极目标。',
+    '6. 结局方向必须与开局方向形成闭环；终极谜团只释放碎片线索，不得一次揭晓。',
+    '7. 伏笔必须分微型、中型、顶级核心三类，并写明分批释放、分批回收规则。',
+    `8. 新角色最多 ${AI_MAX_NEW_CHARACTERS} 个；已有角色够用就返回空数组。`,
+    `9. 新角色不得与已有角色重名。已有角色名单：${existingNames.length ? existingNames.join('、') : '无'}。`,
+    '10. 每个新角色必须写清剧情作用；没有剧情作用的角色不要推荐。',
+    '11. 不要编造原文/参数里完全没有的重要设定；可以合理补全，但要服务于题材、字数规模和基调。',
   ].join('\n');
   return { system, user, existingNames };
 }
 
 export function buildMockProposal(input = {}, warnings = []) {
-  const genreName = genreNameOf(input);
+  const genre = genreProfileOf(input);
+  const genreName = genre.name;
+  const scale = scalePlanOf(input);
   const title = text(input.title, 20) || `【离线占位】${genreName}小说`;
   const tag = '【离线占位】';
   const framework = {
     logline: `${tag}${title}讲述主角在${genreName}世界里被卷入一场无法回避的冲突，并在一次次选择中完成成长。`,
-    protagonist: `${tag}主角暂定为：出身普通或遭逢变故的年轻人，性格有明确缺陷，也有不能被触碰的底线。`,
-    goal: `${tag}主角最初只想活下去或查明真相，随后目标升级为保护重要的人、打破幕后势力。`,
-    obstacle: `${tag}核心阻碍来自一个比主角更强的对立力量：可能是权贵、宗门、组织或规则本身。`,
-    worldview: `${tag}世界观围绕${genreName}题材展开，先确定力量规则、社会秩序和不能越过的禁忌。`,
-    mainPlot: `${tag}主线按“平静被打破 → 被迫入局 → 第一次反击 → 付出代价 → 决战”推进。`,
-    subplots: `${tag}支线用于补充人物关系、资源争夺、旧日恩怨和感情线，每条支线都要能回到主线。`,
+    worldStyle: `${tag}${genreName}式世界风格，自动融合${genre.tags.join('、') || '题材关键词'}与${text(input.tone || genre.tone, 30) || '既定基调'}。`,
+    worldBackground: `${tag}基础背景包含时代、世界形态、地理分区；核心区域已开放，同时预留大量未开放区域作为后续新地图。`,
+    worldRules: `${tag}底层规则围绕题材核心冲突设计，明确代价、禁忌、升级路径和不可违背的边界。`,
+    factionLayers: `${tag}势力分三层：表层日常组织、中层长期博弈势力、深层幕后推手；深层前期只释放痕迹。`,
+    coreLoopCrisis: `${tag}世界存在周期性循环危机：旧秩序持续衰减，异常事件在不同区域反复爆发，平息一处会引出另一处。`,
+    ultimateMystery: `${tag}终极世界谜团锁定但前期不揭晓，所有单元事件与支线都只释放碎片线索。`,
+    protagonist: `${tag}主角出身与身份具备成长空间，带有无法放弃的执念动机。`,
+    protagonistSpecial: `${tag}主角的特别之处来自独特能力/记忆/身份/视角，但每次升级都会带来新的短板和代价。`,
+    protagonistGrowth: `${tag}主角分阶段成长：能力提升同时暴露弱点，避免后期无敌，人物弧光围绕复仇、真相、守护或反抗宿命展开。`,
+    allyTeam: `${tag}固定小队成员各有目标、秘密、专属支线、独有能力与性格缺陷，均可独立拉出番外。`,
+    villainPyramid: `${tag}反派分三层：单元反派、系列中层反派、终极幕后存在，逐层升级并保留反转空间。`,
+    neutralCharacters: `${tag}预留情报人、隐士、双面卧底等中立摇摆角色，用于制造阵营反转。`,
+    mainPlot: `${tag}主线采用阶段目标递进：完成一个目标就发现更大真相，原有认知被推翻。`,
+    seasonPlan: `${tag}按目标总字数规划约 ${scale.seasons} 季。${scale.rule}`,
+    sidequests: `${tag}支线储备包括角色往事、遗迹秘闻、立场冲突和可独立观看的单元小故事。`,
+    theme: `${tag}核心主题围绕“选择与代价”贯穿全系列。`,
+    toneStyle: `${tag}风格基调为${text(input.tone || genre.tone, 30) || '题材默认基调'}，并按受众偏好控制爽点、反转和情绪密度。`,
+    contentRules: `${tag}明确死亡权重、复活规则、血腥与情感尺度，防止后续创作失控。`,
+    rhythm: `${tag}单元节奏采用：小钩子开篇 → 危机升级 → 小反转 → 阶段高潮 → 结尾留悬念。`,
+    foreshadowRules: `${tag}伏笔分微型、中型、顶级核心三级；每卷新增新伏笔，顶级伏笔只释放碎片，严禁一次填坑。`,
+    openingDirection: `${tag}开局用主角最迫切的困境和强钩子快速入局，同时点出终极谜团的第一块碎片。`,
+    endingDirection: `${tag}结局回收开局核心意象与终极主题，但按长篇规划保留未开放区域和下一阶段接口。`,
     highlights: `${tag}爆点包括身份反转、当众打脸、关键道具揭示、盟友背叛和最终决战。`,
-    ending: `${tag}结局方向为：主角解决核心冲突，但付出一定代价，并留下下一季或下一案的接口。`,
   };
   return {
     ok: true,

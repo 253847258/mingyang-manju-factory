@@ -21,7 +21,7 @@ fs.writeFileSync(process.env.FACTORY_CONFIG, JSON.stringify({
 
 const { migrate, all, get, run } = await import('../src/db.js');
 const { createActor } = await import('../src/modules/actors.js');
-const { generateFrameworkProposal, commitCharacters, readReferenceText } = await import('../src/novel-ai.js');
+const { generateFrameworkProposal, commitCharacters, readReferenceText, scalePlanOf } = await import('../src/novel-ai.js');
 const { createApp, createServer } = await import('../src/http.js');
 const { registerNovelAiRoutes } = await import('../src/routes/novel-ai.js');
 
@@ -59,9 +59,21 @@ await check('mock 返回结构化框架、1 主标题 + 2 备选、0 个角色',
   assert.equal(proposal.mocked, true);
   assert.ok(String(proposal.title).includes('离线占位'));
   assert.equal(proposal.titleAlternatives.length, 2);
-  assert.equal(Object.keys(proposal.framework).length, 9);
+  assert.ok(Object.keys(proposal.framework).length >= 20);
+  assert.ok(proposal.framework.worldStyle);
+  assert.ok(proposal.framework.worldRules);
+  assert.ok(proposal.framework.protagonistSpecial);
+  assert.ok(proposal.framework.openingDirection);
+  assert.ok(proposal.framework.endingDirection);
+  assert.ok(proposal.framework.foreshadowRules);
   assert.equal(proposal.characters.length, 0);
   return `${proposal.title} / ${proposal.warnings.length} 条提示`;
+});
+await check('按目标总字数自动规划季数和伏笔层级规则', async () => {
+  assert.equal(scalePlanOf({ targetWords: 80000 }).seasons, 1);
+  assert.equal(scalePlanOf({ targetWords: 400000 }).seasons, 3);
+  assert.ok(scalePlanOf({ targetWords: 3000000 }).seasons >= 6);
+  return `${scalePlanOf({ targetWords: 3000000 }).seasons} 季`;
 });
 
 console.log('\n=== 2. 参考范本读取 ===');

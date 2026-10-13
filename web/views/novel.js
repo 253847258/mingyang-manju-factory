@@ -127,6 +127,23 @@ const CHAPTER_OUTLINE_MAX_CHARS = 3500;
 const CHAPTER_WRITE_MIN_WORDS = 2500;
 const CHAPTER_WRITE_MAX_WORDS = 3500;
 const CHAPTER_WRITE_TARGET_WORDS = 3000;
+const FRAMEWORK_MODULES = [
+  ['模块 1｜世界观体系', [
+    ['世界风格', 'worldStyle'], ['基础背景与开放区域', 'worldBackground'], ['底层规则体系', 'worldRules'],
+    ['势力分层', 'factionLayers'], ['持续循环危机', 'coreLoopCrisis'], ['终极世界谜团', 'ultimateMystery'],
+  ]],
+  ['模块 2｜人物矩阵', [
+    ['主角是谁', 'protagonist'], ['主角特别之处', 'protagonistSpecial'], ['主角成长与代价', 'protagonistGrowth'],
+    ['主角固定小队', 'allyTeam'], ['反派三层金字塔', 'villainPyramid'], ['中立摇摆角色', 'neutralCharacters'],
+  ]],
+  ['模块 3｜主线分段规划', [
+    ['主线阶段目标', 'mainPlot'], ['分季锁坑规划', 'seasonPlan'], ['开局方向', 'openingDirection'], ['结局方向', 'endingDirection'],
+  ]],
+  ['模块 4｜支线储备库', [['四类支线弹药库', 'sidequests'], ['爆点清单', 'highlights']]],
+  ['模块 5｜基调、主题与受众', [['核心主题', 'theme'], ['风格基调与受众', 'toneStyle'], ['内容约束规则', 'contentRules']]],
+  ['模块 6｜叙事节奏与反转', [['漫剧节奏与爽点反转', 'rhythm']]],
+  ['模块 7｜伏笔管控', [['伏笔分级与回收规则', 'foreshadowRules']]],
+];
 
 const S = {
   root: null, ctx: null, meta: null, llm: null,
@@ -999,24 +1016,21 @@ async function autoCharactersFromPlot({ silentIfNone = false, quiet = false } = 
 }
 
 function buildFrameworkText(framework = {}) {
-  const sections = [
-    ['一句话故事', 'logline'],
-    ['主角', 'protagonist'],
-    ['主角目标', 'goal'],
-    ['核心阻碍', 'obstacle'],
-    ['世界观', 'worldview'],
-    ['主线', 'mainPlot'],
-    ['支线', 'subplots'],
-    ['爆点', 'highlights'],
-    ['结局方向', 'ending'],
-  ];
-  return sections
-    .map(([label, key]) => {
-      const value = String(framework?.[key] || '').trim();
-      return value ? `【${label}】\n${value}` : '';
-    })
-    .filter(Boolean)
-    .join('\n\n');
+  const logline = String(framework?.logline || '').trim();
+  const modules = FRAMEWORK_MODULES.map(([title, items]) => {
+    const body = items
+      .map(([label, key]) => {
+        const value = String(framework?.[key] || '').trim();
+        return value ? `【${label}】\n${value}` : '';
+      })
+      .filter(Boolean)
+      .join('\n');
+    return body ? `## ${title}\n${body}` : '';
+  }).filter(Boolean);
+  return [
+    logline ? `【一句话故事】\n${logline}` : '',
+    ...modules,
+  ].filter(Boolean).join('\n\n');
 }
 
 function aiFrameworkPayload() {
@@ -1050,11 +1064,8 @@ function showAiFrameworkPreview(proposal, payload) {
   const wrap = document.createElement('div');
   const titleOptions = [...new Set([proposal.title, ...(Array.isArray(proposal.titleAlternatives) ? proposal.titleAlternatives : [])].filter(Boolean))];
   const framework = proposal.framework || {};
+  const frameworkText = buildFrameworkText(framework);
   const characters = Array.isArray(proposal.characters) ? proposal.characters : [];
-  const sections = [
-    ['一句话故事', 'logline'], ['主角', 'protagonist'], ['主角目标', 'goal'], ['核心阻碍', 'obstacle'],
-    ['世界观', 'worldview'], ['主线', 'mainPlot'], ['支线', 'subplots'], ['爆点', 'highlights'], ['结局方向', 'ending'],
-  ];
   wrap.innerHTML = `
     <div class="nv-hint" style="margin-bottom:8px;line-height:1.7">本次生成只调用 1 次 LLM。确认后标题和故事框架会直接覆盖当前表单；勾选的角色会创建演员矩阵 C-xxxx 角色卡，不会自动出定妆图。</div>
     ${proposal.mocked ? '<div class="nv-warn" style="margin-bottom:8px">当前是 mock 模式，只会填入「【离线占位】」内容，不会创建角色卡。</div>' : ''}
@@ -1064,10 +1075,7 @@ function showAiFrameworkPreview(proposal, payload) {
     </div>
     <div class="nv-card" style="padding:10px;margin-top:8px">
       <div class="nv-card-t">故事框架</div>
-      <div class="nv-preview" style="max-height:260px">${sections.map(([label, key]) => {
-        const v = String(framework[key] || '').trim();
-        return v ? `<b>【${esc(label)}】</b>\n${esc(v)}` : '';
-      }).filter(Boolean).join('\n\n')}</div>
+      <div class="nv-preview" style="max-height:360px">${esc(frameworkText)}</div>
     </div>
     <div class="nv-card" style="padding:10px;margin-top:8px">
       <div class="nv-card-t">推荐角色（${characters.length}）</div>
