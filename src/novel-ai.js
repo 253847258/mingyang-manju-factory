@@ -12,6 +12,7 @@ import { all, get, run, resolveAsset } from './db.js';
 import { genreById } from './data/genres.js';
 import { POVS } from './data/dictionaries.js';
 import { nowISO } from './util.js';
+import { buildGenreCreativeBlueprint } from './genre-frameworks.js';
 
 export const AI_MAX_NEW_CHARACTERS = 8;
 export const AI_MAX_CAST = 200;
@@ -91,13 +92,27 @@ function genreNameOf(input) {
 
 function genreProfileOf(input) {
   const genre = genreById(input.genre);
+  const name = genre?.name || genreNameOf(input);
+  const tags = Array.isArray(genre?.tags) ? genre.tags.slice(0, 10) : [];
+  const blueprint = genre?.id
+    ? buildGenreCreativeBlueprint(genre.id)
+    : buildGenreCreativeBlueprint({
+      id: text(input.genre || 'custom-genre', 60),
+      name,
+      cat: '自定义',
+      tone: input.tone || '',
+      tags,
+      hook: '',
+      desc: '',
+    });
   return {
-    name: genre?.name || genreNameOf(input),
+    name,
     category: genre?.cat || '',
     tone: genre?.tone || input.tone || '',
-    tags: Array.isArray(genre?.tags) ? genre.tags.slice(0, 10) : [],
+    tags,
     hook: genre?.hook || '',
     desc: genre?.desc || '',
+    blueprint,
   };
 }
 
@@ -165,6 +180,7 @@ export function readReferenceText(refDocPath, warnings = []) {
 export function buildFrameworkPrompt(input = {}, refText = '') {
   const genre = genreProfileOf(input);
   const genreName = genre.name;
+  const blueprint = genre.blueprint;
   const scale = scalePlanOf(input);
   const povName = povNameOf(input);
   const actorList = Array.isArray(input.actorList) ? input.actorList : [];
@@ -194,6 +210,9 @@ export function buildFrameworkPrompt(input = {}, refText = '') {
     `建议季数：${scale.seasons}`,
     `字数规模规则：${scale.rule}`,
     `角色规模上限：${Number(input.castSize) || 20}`,
+    '',
+    '【题材创意引擎（必须遵循，不得写成通用套话）】',
+    JSON.stringify(genre.blueprint, null, 2),
     '',
     '【已选演员矩阵角色】',
     actorSummary(actorList),
@@ -251,6 +270,7 @@ export function buildFrameworkPrompt(input = {}, refText = '') {
     '【硬性要求】',
     '1. 全部用中文；标题 1 个主标题 + 2 个备选，单个不超过 20 字，匹配题材和基调。',
     '2. 必须严格按固定 7 模块写作：① 世界观体系 ② 人物矩阵 ③ 主线分段规划 ④ 支线储备库 ⑤ 故事基调、核心主题与受众规则 ⑥ 叙事节奏与爽点/反转设计 ⑦ 伏笔管控规则。',
+    '2.1 必须使用「题材创意引擎」中的世界规则、循环危机、终极谜团、主角公式、爆款钩子和续集发动机，成为该题材的专属方案，不得套用通用模板。',
     '3. 世界观必须包含：基础背景、大量未开放区域、底层规则、表层/中层/深层势力、持续循环危机、终极世界谜团。',
     '4. 人物矩阵必须包含：主角身份/执念/特别之处/成长代价、固定小队、三层反派金字塔、中立摇摆角色。',
     '5. 必须根据目标总字数自动规划季数和阶段目标；长篇及以上不得在前 3 季完成终极目标。',
@@ -267,19 +287,20 @@ export function buildFrameworkPrompt(input = {}, refText = '') {
 export function buildMockProposal(input = {}, warnings = []) {
   const genre = genreProfileOf(input);
   const genreName = genre.name;
+  const blueprint = genre.blueprint;
   const scale = scalePlanOf(input);
   const title = text(input.title, 20) || `【离线占位】${genreName}小说`;
   const tag = '【离线占位】';
   const framework = {
     logline: `${tag}${title}讲述主角在${genreName}世界里被卷入一场无法回避的冲突，并在一次次选择中完成成长。`,
-    worldStyle: `${tag}${genreName}式世界风格，自动融合${genre.tags.join('、') || '题材关键词'}与${text(input.tone || genre.tone, 30) || '既定基调'}。`,
+    worldStyle: `${tag}${blueprint.worldStyle}`,
     worldBackground: `${tag}基础背景包含时代、世界形态、地理分区；核心区域已开放，同时预留大量未开放区域作为后续新地图。`,
-    worldRules: `${tag}底层规则围绕题材核心冲突设计，明确代价、禁忌、升级路径和不可违背的边界。`,
-    factionLayers: `${tag}势力分三层：表层日常组织、中层长期博弈势力、深层幕后推手；深层前期只释放痕迹。`,
-    coreLoopCrisis: `${tag}世界存在周期性循环危机：旧秩序持续衰减，异常事件在不同区域反复爆发，平息一处会引出另一处。`,
-    ultimateMystery: `${tag}终极世界谜团锁定但前期不揭晓，所有单元事件与支线都只释放碎片线索。`,
-    protagonist: `${tag}主角出身与身份具备成长空间，带有无法放弃的执念动机。`,
-    protagonistSpecial: `${tag}主角的特别之处来自独特能力/记忆/身份/视角，但每次升级都会带来新的短板和代价。`,
+    worldRules: `${tag}${blueprint.worldRules}`,
+    factionLayers: `${tag}${blueprint.factionLayers}`,
+    coreLoopCrisis: `${tag}${blueprint.coreLoopCrisis}`,
+    ultimateMystery: `${tag}${blueprint.ultimateMystery}`,
+    protagonist: `${tag}${blueprint.protagonistFormula}`,
+    protagonistSpecial: `${tag}${blueprint.protagonistSpecial}`,
     protagonistGrowth: `${tag}主角分阶段成长：能力提升同时暴露弱点，避免后期无敌，人物弧光围绕复仇、真相、守护或反抗宿命展开。`,
     allyTeam: `${tag}固定小队成员各有目标、秘密、专属支线、独有能力与性格缺陷，均可独立拉出番外。`,
     villainPyramid: `${tag}反派分三层：单元反派、系列中层反派、终极幕后存在，逐层升级并保留反转空间。`,
@@ -292,9 +313,9 @@ export function buildMockProposal(input = {}, warnings = []) {
     contentRules: `${tag}明确死亡权重、复活规则、血腥与情感尺度，防止后续创作失控。`,
     rhythm: `${tag}单元节奏采用：小钩子开篇 → 危机升级 → 小反转 → 阶段高潮 → 结尾留悬念。`,
     foreshadowRules: `${tag}伏笔分微型、中型、顶级核心三级；每卷新增新伏笔，顶级伏笔只释放碎片，严禁一次填坑。`,
-    openingDirection: `${tag}开局用主角最迫切的困境和强钩子快速入局，同时点出终极谜团的第一块碎片。`,
-    endingDirection: `${tag}结局回收开局核心意象与终极主题，但按长篇规划保留未开放区域和下一阶段接口。`,
-    highlights: `${tag}爆点包括身份反转、当众打脸、关键道具揭示、盟友背叛和最终决战。`,
+    openingDirection: `${tag}${blueprint.openingFormula}`,
+    endingDirection: `${tag}${blueprint.endingDirection}`,
+    highlights: `${tag}${blueprint.hitHooks.join('；')}。`,
   };
   return {
     ok: true,
@@ -302,6 +323,7 @@ export function buildMockProposal(input = {}, warnings = []) {
     title,
     titleAlternatives: [`${title}·备选一`, `${title}·备选二`],
     framework,
+    genreBlueprint: blueprint,
     characters: [],
     warnings: [
       '当前 LLM 为 mock，只生成离线占位内容。',
@@ -394,7 +416,11 @@ export async function generateFrameworkProposal(input = {}) {
   if (!raw || typeof raw !== 'object') {
     throw new Error('LLM 没有返回可解析的 JSON，请重试或检查模型配置');
   }
-  return normalizeFrameworkProposal(raw, context, warnings);
+  const normalized = normalizeFrameworkProposal(raw, context, warnings);
+  return {
+    ...normalized,
+    genreBlueprint: genreProfileOf(context).blueprint,
+  };
 }
 
 export async function commitCharacters({

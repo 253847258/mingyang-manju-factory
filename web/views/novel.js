@@ -441,7 +441,7 @@ function formHtml(mode) {
       </div>
       <div class="nv-grid">${shown.map((g) => `<div class="nv-gitem ${g.id === f.genre ? 'nv-on' : ''}" data-act="genre" data-id="${esc(g.id)}">
         <b>${esc(g.name)}</b><span>${esc(g.cat)} · ${esc(g.desc || '')}</span><span>钩子：${esc(g.hook || '—')}</span></div>`).join('')}</div>
-      ${genre ? `<div class="nv-hint" style="margin-top:6px">推荐基调：${esc(genre.tone || '—')}｜关键词：${esc((genre.tags || []).join('、'))}｜开篇钩子：${esc(genre.hook || '—')}</div>` : ''}
+      ${genre ? `<div class="nv-row" style="margin-top:6px"><span class="nv-hint">推荐基调：${esc(genre.tone || '—')}｜关键词：${esc((genre.tags || []).join('、'))}｜开篇钩子：${esc(genre.hook || '—')}</span><button class="nv-btn nv-btn-sm" data-act="genre-blueprint" data-id="${esc(genre.id)}">查看 AI 题材创意引擎</button></div>` : ''}
     </div>
 
     <div class="nv-step" style="margin-top:14px"><em>2</em>定义演员（引用模块1演员表 + 自定义角色，合计 ≤ ${num(f.cast_size, 20)} / 200）
@@ -1050,6 +1050,37 @@ function aiFrameworkPayload() {
   };
 }
 
+async function showGenreBlueprint(genreId) {
+  const r = await guard(async () => S.ctx.api.get(`/api/novels/ai/genre-blueprints?genre=${encodeURIComponent(genreId)}`));
+  const b = r?.blueprint;
+  if (!b) return;
+  const body = document.createElement('div');
+  body.innerHTML = `<div class="nv-note" style="line-height:1.8"><b>${esc(b.genreName)}</b> · ${esc(b.category)}｜${esc(b.tone || '')}<br>${esc(b.creativePositioning)}</div>
+    <div class="nv-card" style="padding:10px;margin-top:8px">
+      <div class="nv-card-t">世界与主线引擎</div>
+      <div style="line-height:1.8"><b>世界风格：</b>${esc(b.worldStyle)}<br><b>世界规则：</b>${esc(b.worldRules)}<br><b>循环危机：</b>${esc(b.coreLoopCrisis)}<br><b>终极谜团：</b>${esc(b.ultimateMystery)}</div>
+    </div>
+    <div class="nv-card" style="padding:10px;margin-top:8px">
+      <div class="nv-card-t">人物与爆款钩子</div>
+      <div style="line-height:1.8"><b>主角公式：</b>${esc(b.protagonistFormula)}<br><b>特别之处：</b>${esc(b.protagonistSpecial)}<br><b>开局：</b>${esc(b.openingFormula)}<br><b>结局方向：</b>${esc(b.endingDirection)}<br><b>爽点循环：</b>${esc(b.payoffLoop)}</div>
+    </div>
+    <div class="nv-card" style="padding:10px;margin-top:8px">
+      <div class="nv-card-t">爆款与续集发动机</div>
+      <div style="line-height:1.8">${(b.hitHooks || []).map((x, i) => `${i + 1}. ${esc(x)}`).join('<br>')}<br>
+      <b>新区域：</b>${esc(b.sequelEngine?.newRegions || '')}<br>
+      <b>新势力：</b>${esc(b.sequelEngine?.newFactions || '')}<br>
+      <b>新危机：</b>${esc(b.sequelEngine?.newCrisis || '')}<br>
+      <b>番外角色：</b>${esc(b.sequelEngine?.characterSpinoffs || '')}</div>
+    </div>`;
+  const m = S.ctx.modal({ title: 'AI 题材创意引擎', body, width: 720 });
+  const bar = document.createElement('div');
+  bar.className = 'nv-row';
+  bar.style.marginTop = '10px';
+  bar.innerHTML = '<button class="nv-btn nv-btn-p" data-a="close">关闭</button>';
+  body.appendChild(bar);
+  bar.querySelector('[data-a="close"]').onclick = () => m.close();
+}
+
 async function openAiFramework() {
   if (S.busy) return;
   const f = collectForm();
@@ -1647,6 +1678,7 @@ async function onClickEvent(e) {
     case 'cast-warn': toast('角色总数超过角色规模，请先调整后再保存', 'err'); return;
     case 'save-form': await saveForm(); return;
     case 'ai-framework': await openAiFramework(); return;
+    case 'genre-blueprint': await showGenreBlueprint(el.dataset.id); return;
     case 'upload-ref': S.root.querySelector('#nv-ref-file')?.click(); return;
     case 'clear-ref':
       S.form = collectForm(); S.form.ref_doc_path = ''; S.form.ref_doc_name = ''; render(); return;

@@ -8,6 +8,7 @@ import {
 import { writeLongChapter } from '../novel-writing.js';
 import { buildNovelAssets } from '../novel-assets.js';
 import { characterFreeMode, updateCharacterFreeMode, discoverPlotCharacters, autoArchivePlotCharacters } from '../novel-characters.js';
+import { buildGenreCreativeBlueprint, listGenreCreativeBlueprints } from '../genre-frameworks.js';
 
 function param(ctx, name) {
   return ctx?.params && typeof ctx.params === 'object' ? ctx.params[name] : '';
@@ -21,6 +22,20 @@ export function registerNovelAiRoutes(app) {
       ctx.json(proposal);
     } catch (err) {
       throw badRequest(err.message || 'AI 生成故事框架失败');
+    }
+  });
+
+  app.get('/api/novels/ai/genre-blueprints', async (ctx) => {
+    try {
+      const genreId = String(ctx.query?.genre || ctx.query?.genreId || '').trim();
+      if (genreId) {
+        ctx.json({ ok: true, blueprint: buildGenreCreativeBlueprint(genreId) });
+        return;
+      }
+      const blueprints = listGenreCreativeBlueprints();
+      ctx.json({ ok: true, count: blueprints.length, blueprints });
+    } catch (err) {
+      throw badRequest(err.message || '读取题材创意引擎失败');
     }
   });
 

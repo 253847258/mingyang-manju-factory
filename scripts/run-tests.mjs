@@ -55,6 +55,7 @@ const FAST = [
   'test-novel-writing.js',
   'test-novel-assets.js',
   'test-novel-characters.js',
+  'test-genre-frameworks.js',
   'test-scripting-enhance.js',
 ];
 
