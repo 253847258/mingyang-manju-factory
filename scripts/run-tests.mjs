@@ -54,6 +54,7 @@ const FAST = [
   'test-novel-outline-ai.js',
   'test-novel-writing.js',
   'test-novel-assets.js',
+  'test-novel-characters.js',
   'test-scripting-enhance.js',
 ];
 

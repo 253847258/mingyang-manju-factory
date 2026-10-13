@@ -7,6 +7,7 @@ import {
 } from '../novel-outline-ai.js';
 import { writeLongChapter } from '../novel-writing.js';
 import { buildNovelAssets } from '../novel-assets.js';
+import { characterFreeMode, updateCharacterFreeMode, discoverPlotCharacters, autoArchivePlotCharacters } from '../novel-characters.js';
 
 function param(ctx, name) {
   return ctx?.params && typeof ctx.params === 'object' ? ctx.params[name] : '';
@@ -42,6 +43,35 @@ export function registerNovelAiRoutes(app) {
   app.get('/api/novels/:id/assets', async (ctx) => {
     try { ctx.json(buildNovelAssets(param(ctx, 'id'))); }
     catch (err) { throw badRequest(err.message || '读取小说资产失败'); }
+  });
+
+  app.get('/api/novels/:id/characters/free-mode', async (ctx) => {
+    try { ctx.json(characterFreeMode(param(ctx, 'id'))); }
+    catch (err) { throw badRequest(err.message || '读取角色自由模式失败'); }
+  });
+
+  app.put('/api/novels/:id/characters/free-mode', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      ctx.json({ ok: true, mode: updateCharacterFreeMode(param(ctx, 'id'), body) });
+    } catch (err) { throw badRequest(err.message || '保存角色自由模式失败'); }
+  });
+
+  app.post('/api/novels/:id/characters/free-mode/plan', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      ctx.json(await discoverPlotCharacters(param(ctx, 'id'), { instruction: String(body.instruction || '') }));
+    } catch (err) { throw badRequest(err.message || '角色剧情规划失败'); }
+  });
+
+  app.post('/api/novels/:id/characters/free-mode/auto', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      ctx.json(await autoArchivePlotCharacters(param(ctx, 'id'), {
+        apply: body.apply !== false,
+        instruction: String(body.instruction || ''),
+      }));
+    } catch (err) { throw badRequest(err.message || '自动补齐角色失败'); }
   });
 
   app.post('/api/novels/:id/outline/ai/section', async (ctx) => {

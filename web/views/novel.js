@@ -134,6 +134,7 @@ const S = {
   view: 'empty',            // empty | create | workspace
   currentId: null, detail: null,
   assets: null,
+  freeMode: null,
   tab: 'params',
   genres: [], categories: [], povs: POV_FALLBACK, tones: TONE_FALLBACK, sections: OUTLINE_SECTIONS_FALLBACK, limits: null,
   genreCat: '全部', genreQ: '',
@@ -265,12 +266,14 @@ async function loadActors() {
 }
 
 async function openNovel(id) {
-  const [detail, assets] = await Promise.all([
+  const [detail, assets, freeMode] = await Promise.all([
     S.ctx.api.get(`/api/novels/${id}`),
     S.ctx.api.get(`/api/novels/${id}/assets`).catch(() => ({ characters: [], environments: [], props: [] })),
+    S.ctx.api.get(`/api/novels/${id}/characters/free-mode`).catch(() => null),
   ]);
   S.detail = detail;
   S.assets = assets;
+  S.freeMode = freeMode;
   S.currentId = id;
   S.view = 'workspace';
   if (S.detail.llm) S.llm = S.detail.llm;
@@ -282,12 +285,14 @@ async function openNovel(id) {
 
 async function reloadDetail() {
   if (!S.currentId) return;
-  const [detail, assets] = await Promise.all([
+  const [detail, assets, freeMode] = await Promise.all([
     S.ctx.api.get(`/api/novels/${S.currentId}`),
     S.ctx.api.get(`/api/novels/${S.currentId}/assets`).catch(() => ({ characters: [], environments: [], props: [] })),
+    S.ctx.api.get(`/api/novels/${S.currentId}/characters/free-mode`).catch(() => null),
   ]);
   S.detail = detail;
   S.assets = assets;
+  S.freeMode = freeMode;
   if (S.detail.llm) S.llm = S.detail.llm;
   if (S.detail.novel) applyFormFromNovel(S.detail.novel);
   render();
@@ -508,9 +513,33 @@ function workspaceHtml() {
       </div>
       ${jobBarHtml()}
       ${assetIndexHtml()}
+      ${freeModeHtml()}
       <div class="nv-tabs" style="margin-top:10px">${tabs.map(([k, label]) => `<button class="nv-tab ${S.tab === k ? 'nv-on' : ''}" data-act="tab" data-tab="${k}">${esc(label)}</button>`).join('')}</div>
     </div>
     ${S.tab === 'params' ? formHtml('edit') : S.tab === 'outline' ? outlineHtml() : S.tab === 'chapters' ? chaptersHtml() : exportHtml()}`;
+}
+
+function freeModeHtml() {
+  const m = S.freeMode || { enabled: false, maxCharacters: num(S.detail?.novel?.cast_size, 20), stylePolicy: 'plot-driven', currentCharacters: 0, castSize: num(S.detail?.novel?.cast_size, 20), availableCharacters: num(S.detail?.novel?.cast_size, 20) };
+  return `<div class="nv-card" style="padding:8px 10px">
+    <div class="nv-row">
+      <button class="nv-btn ${m.enabled ? 'nv-btn-a' : ''}" data-act="toggle-free-mode">${m.enabled ? '角色自由模式：已开启' : '角色自由模式：已关闭'}</button>
+      <label class="nv-f"><span class="nv-lbl">最多按剧情新增</span><input class="nv-input nv-num" data-role="free-max" type="number" min="1" max="${m.castSize}" value="${m.maxCharacters}"></label>
+      <label class="nv-f" style="min-width:190px"><span class="nv-lbl">角色风格策略</span>
+        <select class="nv-select" data-role="free-style">
+          <option value="plot-driven" ${m.stylePolicy === 'plot-driven' ? 'selected' : ''}>根据剧情需要（推荐）</option>
+          <option value="cinematic-real" ${m.stylePolicy === 'cinematic-real' ? 'selected' : ''}>电影写实</option>
+          <option value="guoman-real" ${m.stylePolicy === 'guoman-real' ? 'selected' : ''}>国漫写实</option>
+          <option value="anime" ${m.stylePolicy === 'anime' ? 'selected' : ''}>二次元动画</option>
+          <option value="ink" ${m.stylePolicy === 'ink' ? 'selected' : ''}>水墨国风</option>
+        </select>
+      </label>
+      <button class="nv-btn" data-act="save-free-mode">保存模式</button>
+      <button class="nv-btn nv-btn-a" data-act="auto-characters">AI 按剧情补齐角色</button>
+      <span class="nv-pill">已有 ${m.currentCharacters}/${m.castSize} · 可新增 ${m.availableCharacters}</span>
+    </div>
+    <div class="nv-hint" style="margin-top:5px">开启后，AI 会结合故事大纲、章节章首章末和故事线自动发现剧情缺口，创建详细角色档案，并归档为当前小说专属引用；不会自动生成定妆图。</div>
+  </div>`;
 }
 
 function assetIndexHtml() {
@@ -891,6 +920,68 @@ async function saveForm() {
   if (saved) render();
 }
 
+async function saveFreeMode(enabledOverride = undefined, { silent = false } = {}) {
+  const current = S.freeMode || {};
+  const enabled = enabledOverride === undefined ? Boolean(current.enabled) : Boolean(enabledOverride);
+  const maxCharacters = num(readVal('free-max'), num(S.detail?.novel?.cast_size, 20));
+  const stylePolicy = readVal('free-style') || current.stylePolicy || 'plot-driven';
+  const r = await guard(async () => S.ctx.api.put(`/api/novels/${S.currentId}/characters/free-mode`, {
+    enabled,
+    maxCharacters,
+    stylePolicy,
+    autoCreate: true,
+  }));
+  if (!r) return null;
+  S.freeMode = r.mode;
+  if (!silent) toast(`角色自由模式已${r.mode.enabled ? '开启' : '关闭'}`, 'ok');
+  if (!silent) render();
+  return r.mode;
+}
+
+function showAutoCharacterReport(r) {
+  const created = Array.isArray(r.created) ? r.created : [];
+  const failed = Array.isArray(r.failed) ? r.failed : [];
+  const warnings = Array.isArray(r.warnings) ? r.warnings : [];
+  const body = document.createElement('div');
+  body.innerHTML = `<div class="nv-note" style="line-height:1.8">
+    <b>角色自由模式结果</b><br>
+    本次提案 ${r.characters?.length || 0} 个角色，已创建/复用 ${created.length} 个，失败 ${failed.length} 个。
+  </div>
+  ${created.length ? `<div class="nv-note" style="margin-top:8px"><b>归档到本小说：</b><br>${created.map((x) => `${esc(x.actorId)} ${esc(x.name)}${x.reused ? '（复用）' : '（新建）'}`).join('<br>')}</div>` : ''}
+  ${failed.length ? `<div class="nv-warn" style="margin-top:8px">${failed.map((x) => `${esc(x.name)}：${esc(x.error)}`).join('<br>')}</div>` : ''}
+  ${warnings.length ? `<div class="nv-warn" style="margin-top:8px">${warnings.map((x) => esc(x)).join('<br>')}</div>` : ''}`;
+  const m = S.ctx.modal({ title: 'AI 剧情角色归档', body, width: 660 });
+  const bar = document.createElement('div');
+  bar.className = 'nv-row';
+  bar.style.marginTop = '10px';
+  bar.innerHTML = '<button class="nv-btn nv-btn-p" data-a="close">知道了</button>';
+  body.appendChild(bar);
+  bar.querySelector('[data-a="close"]').onclick = () => m.close();
+}
+
+async function autoCharactersFromPlot({ silentIfNone = false, quiet = false } = {}) {
+  if (!S.freeMode?.enabled) {
+    if (!(await S.ctx.confirm('角色自由模式尚未开启。是否开启并按当前剧情自动补齐角色？'))) return null;
+    const mode = await saveFreeMode(true, { silent: true });
+    if (!mode) return null;
+  }
+  const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/characters/free-mode/auto`, {
+    apply: true,
+    instruction: '根据故事大纲、章首章末、故事线和现有角色缺口自动补齐角色。',
+  }));
+  if (!r) return null;
+  await reloadDetail();
+  await loadList();
+  S.actorsLoaded = false;
+  await loadActors();
+  if (quiet) {
+    if (r.created?.length) toast(`角色自由模式已归档 ${r.created.length} 个剧情角色`, 'ok');
+  } else if (!silentIfNone || r.characters?.length || r.warnings?.length) {
+    showAutoCharacterReport(r);
+  }
+  return r;
+}
+
 function buildFrameworkText(framework = {}) {
   const sections = [
     ['一句话故事', 'logline'],
@@ -1064,6 +1155,7 @@ async function startOutlineGen() {
   S.tab = 'outline';
   await reloadDetail();
   await loadList();
+  if (S.freeMode?.enabled) await autoCharactersFromPlot({ silentIfNone: true, quiet: true });
 }
 
 function outlineAiSnapshot() {
@@ -1170,6 +1262,7 @@ function openOutlineAiPlanModal(snap) {
     await reloadDetail();
     await loadList();
     if (result.fill?.mocked || result.chapterPlan?.mocked) toast('已生成离线占位大纲；配置真实 LLM 后可逐节重做', 'warn');
+    if (S.freeMode?.enabled) await autoCharactersFromPlot({ silentIfNone: true, quiet: true });
     showOutlineAiReport(result);
   };
 }
@@ -1265,6 +1358,7 @@ async function rewriteAllChapterPlans() {
   S.tab = 'outline';
   await reloadDetail();
   await loadList();
+  if (S.freeMode?.enabled) await autoCharactersFromPlot({ silentIfNone: true, quiet: true });
   if (r.mocked) toast('全部章节已生成离线占位大纲', 'warn');
   showOutlineAiReport({ chapterPlan: r });
 }
@@ -1477,6 +1571,9 @@ async function onClickEvent(e) {
     case 'cancel-edit': S.tab = 'params'; S.form = applyFormFromNovel(S.detail.novel) || S.form; render(); return;
     case 'refresh': await guard(loadList, '已刷新'); render(); return;
     case 'refresh-detail': await guard(reloadDetail, '已刷新'); return;
+    case 'toggle-free-mode': await saveFreeMode(!S.freeMode?.enabled); return;
+    case 'save-free-mode': await saveFreeMode(); return;
+    case 'auto-characters': await autoCharactersFromPlot(); return;
     case 'asset-view': {
       const kind = el.dataset.kind;
       const rows = kind === 'character' ? S.assets?.characters : kind === 'environment' ? S.assets?.environments : S.assets?.props;
@@ -1730,6 +1827,7 @@ export function mount(root, ctx) {
   S.novels = []; S.q = ''; S.view = 'empty'; S.currentId = null; S.detail = null;
   S.tab = 'params'; S.chapterIdx = null; S.chapter = null; S.editing = false;
   S.job = null; S.jobId = null; S.busy = false; S.exportPreview = '';
+  S.freeMode = null;
   S.actors = []; S.actorsLoaded = false; S.actorQ = '';
   S.form = null; S.formMode = 'create';
   S.handlers = {

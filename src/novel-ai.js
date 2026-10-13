@@ -8,9 +8,10 @@
 
 import fs from 'node:fs';
 import { chatJSON } from './llm.js';
-import { all, get, resolveAsset } from './db.js';
+import { all, get, run, resolveAsset } from './db.js';
 import { genreById } from './data/genres.js';
 import { POVS } from './data/dictionaries.js';
+import { nowISO } from './util.js';
 
 export const AI_MAX_NEW_CHARACTERS = 8;
 export const AI_MAX_CAST = 200;
@@ -303,7 +304,13 @@ export async function generateFrameworkProposal(input = {}) {
   return normalizeFrameworkProposal(raw, context, warnings);
 }
 
-export async function commitCharacters({ novelId = null, characters = [] } = {}) {
+export async function commitCharacters({
+  novelId = null,
+  characters = [],
+  bindToNovel = false,
+  tags = [],
+  styleId = '',
+} = {}) {
   const actorsMod = await import('./modules/actors.js');
   const list = (Array.isArray(characters) ? characters : [])
     .map((c) => ({
@@ -316,6 +323,10 @@ export async function commitCharacters({ novelId = null, characters = [] } = {})
       costume: multilineText(c?.costume, 300),
       background: multilineText(c?.background, 300),
       reason: multilineText(c?.reason, 300),
+      firstAppearance: multilineText(c?.firstAppearance, 120),
+      storylineRole: multilineText(c?.storylineRole, 300),
+      styleHint: text(c?.styleHint || c?.style, 120),
+      styleId: text(c?.styleId, 60) || text(styleId, 60),
     }))
     .filter((c) => c.name)
     .slice(0, AI_MAX_NEW_CHARACTERS);
@@ -376,10 +387,15 @@ export async function commitCharacters({ novelId = null, characters = [] } = {})
         face: item.appearance,
         personality: item.personality,
         costume: item.costume,
-        background: [item.background, item.reason ? `剧情作用：${item.reason}` : ''].filter(Boolean).join('\n'),
-        style_id: 'cinematic-real',
+        background: [
+          item.background,
+          item.reason ? `剧情作用：${item.reason}` : '',
+          item.storylineRole ? `故事线作用：${item.storylineRole}` : '',
+          item.firstAppearance ? `首次出场：${item.firstAppearance}` : '',
+        ].filter(Boolean).join('\n'),
+        style_id: item.styleId || 'cinematic-real',
         ratio: '3:4',
-        tags: JSON.stringify(['AI推荐', '小说工坊']),
+        tags: JSON.stringify([...new Set(['AI推荐', '小说工坊', ...(novelId ? [`novel:${novelId}`] : []), ...(Array.isArray(tags) ? tags : [])])]),
       });
       byName.set(key, actor.id);
       created.push({ name: item.name, actorId: actor.id, reused: false });
@@ -388,7 +404,17 @@ export async function commitCharacters({ novelId = null, characters = [] } = {})
       failed.push({ name: item.name, error: err.message || '创建角色卡失败' });
     }
   }
-  return { ok: true, created, failed, warnings };
+  if (bindToNovel && novel) {
+    const nextActorIds = [...new Set([
+      ...actorIds,
+      ...created.map((x) => x.actorId).filter(Boolean),
+    ])];
+    const createdNames = new Set(created.map((x) => text(x.name, 30).toLowerCase()));
+    const nextCustom = customActors.filter((c) => !createdNames.has(text(c?.name, 30).toLowerCase()));
+    run('UPDATE novels SET actor_ids = ?, custom_actors = ?, updated_at = ? WHERE id = ?',
+      JSON.stringify(nextActorIds), JSON.stringify(nextCustom), nowISO(), novelId);
+  }
+  return { ok: true, created, failed, warnings, boundToNovel: Boolean(bindToNovel && novel) };
 }
 
 function safeJson(value, fallback) {
