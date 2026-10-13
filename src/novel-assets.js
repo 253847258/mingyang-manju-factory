@@ -22,6 +22,14 @@ const uniqBy = (rows, keyOf) => {
   return out;
 };
 
+function samePlaceName(a, b) {
+  const left = TEXT(a, 60).replace(/^(临海市|第?[一二三四五六七八九十]+)/, '');
+  const right = TEXT(b, 60).replace(/^(临海市|第?[一二三四五六七八九十]+)/, '');
+  if (!left || !right) return false;
+  if (left === right) return true;
+  return left.length >= 2 && right.length >= 2 && (left.includes(right) || right.includes(left));
+}
+
 function latestOutline(novelId) {
   const row = get('SELECT payload FROM novel_outlines WHERE novel_id = ? ORDER BY version DESC LIMIT 1', novelId);
   return row ? safeJson(row.payload, {}) : {};
@@ -91,7 +99,7 @@ export function buildNovelAssets(novelOrId, sectionsOverride = null) {
   ], (x) => x.id);
 
   const outlineLocations = Array.isArray(sections.locations) ? sections.locations : [];
-  const knownLocations = new Map(outlineLocations.map((x) => [TEXT(x.name, 60), x]));
+  const findKnownLocation = (name) => outlineLocations.find((x) => samePlaceName(x.name, name));
   const adaptationScenes = adapt.items.filter((x) => x.subtitle === '场景');
   const environments = uniqBy([
     ...outlineLocations.map((x) => ({
@@ -100,7 +108,7 @@ export function buildNovelAssets(novelOrId, sectionsOverride = null) {
     })),
     ...adaptationScenes.map((x) => {
       const asset = assetByName.get(TEXT(x.name, 50));
-      const known = knownLocations.get(TEXT(x.name, 60));
+      const known = findKnownLocation(x.name);
       return {
         id: known?.id || idFromSummary(asset?.summary, 'L') || '',
         kind: 'environment', name: x.name || '', role: '改编场景',

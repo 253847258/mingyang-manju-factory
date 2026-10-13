@@ -1,11 +1,11 @@
 // 小说工坊 · 角色自由模式
 // 根据剧情自动发现、补全并归档角色，角色卡仍使用演员矩阵 C-xxxx，同时绑定到当前小说。
 
-import { get, run } from './db.js';
+import { get } from './db.js';
 import { chatJSON, llmStatus } from './llm.js';
 import { commitCharacters, AI_MAX_CAST } from './novel-ai.js';
 import { buildNovelAssets } from './novel-assets.js';
-import { nowISO } from './util.js';
+import { getNovelAiSettings, updateNovelAiSettings, archiveCharacterLink } from './novel-settings.js';
 
 const TEXT = (v, max = 300) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 const safeJson = (v, fallback) => {
@@ -36,8 +36,13 @@ function currentCharacterCount(novel) {
 
 export function characterFreeMode(novelId) {
   const novel = novelOf(novelId);
-  const meta = safeJson(novel.meta, {});
-  const mode = { ...CHARACTER_FREE_DEFAULTS, ...(meta.characterFreeMode || {}) };
+  const settings = getNovelAiSettings(novelId);
+  const mode = {
+    enabled: settings.characterFreeEnabled,
+    maxCharacters: settings.maxCharacters,
+    stylePolicy: settings.stylePolicy,
+    autoCreate: settings.autoCreate,
+  };
   const current = currentCharacterCount(novel);
   const castSize = Math.max(1, Math.min(AI_MAX_CAST, Number(novel.cast_size) || CHARACTER_FREE_DEFAULTS.maxCharacters));
   return {
@@ -53,23 +58,18 @@ export function characterFreeMode(novelId) {
 
 export function updateCharacterFreeMode(novelId, patch = {}) {
   const novel = novelOf(novelId);
-  const meta = safeJson(novel.meta, {});
-  const previous = { ...CHARACTER_FREE_DEFAULTS, ...(meta.characterFreeMode || {}) };
+  const previous = characterFreeMode(novelId);
   const castSize = Math.max(1, Math.min(AI_MAX_CAST, Number(novel.cast_size) || 20));
   const maxCharacters = Math.max(1, Math.min(castSize, Number(patch.maxCharacters) || previous.maxCharacters || castSize));
   const stylePolicy = ['plot-driven', 'cinematic-real', 'guoman-real', 'anime', 'ink'].includes(String(patch.stylePolicy))
     ? String(patch.stylePolicy)
     : previous.stylePolicy;
-  const next = {
-    ...previous,
-    enabled: patch.enabled === undefined ? previous.enabled : Boolean(patch.enabled),
+  updateNovelAiSettings(novelId, {
+    characterFreeEnabled: patch.enabled === undefined ? previous.enabled : Boolean(patch.enabled),
     maxCharacters,
     stylePolicy,
     autoCreate: patch.autoCreate === undefined ? previous.autoCreate : Boolean(patch.autoCreate),
-    updatedAt: nowISO(),
-  };
-  meta.characterFreeMode = next;
-  run('UPDATE novels SET meta = ?, updated_at = ? WHERE id = ?', JSON.stringify(meta), nowISO(), novelId);
+  });
   return characterFreeMode(novelId);
 }
 
@@ -188,6 +188,16 @@ export async function autoArchivePlotCharacters(novelId, { apply = true, instruc
     created.push(...(result.created || []));
     failed.push(...(result.failed || []));
     warnings.push(...(result.warnings || []));
+  }
+  const byName = new Map(proposal.characters.map((x) => [x.name.toLowerCase(), x]));
+  for (const item of created) {
+    const detail = byName.get(String(item.name || '').toLowerCase()) || {};
+    archiveCharacterLink(novelId, { id: item.actorId, name: item.name }, {
+      source: '角色自由模式',
+      reason: detail.reason,
+      firstAppearance: detail.firstAppearance,
+      storylineRole: detail.storylineRole,
+    });
   }
   const mode = characterFreeMode(novelId);
   return {

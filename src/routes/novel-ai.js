@@ -10,12 +10,15 @@ import { buildNovelAssets } from '../novel-assets.js';
 import { characterFreeMode, updateCharacterFreeMode, discoverPlotCharacters, autoArchivePlotCharacters } from '../novel-characters.js';
 import { buildGenreCreativeBlueprint, listGenreCreativeBlueprints } from '../genre-frameworks.js';
 import { listCreativeOptions, planGenreFromTitle, getNovelCreativeOptions, updateNovelCreativeOptions } from '../novel-creative-options.js';
+import { ensureNovelSettingsSchema, getNovelAiSettings, updateNovelAiSettings, listNovelCharacterArchive } from '../novel-settings.js';
+import { enqueue } from '../jobs.js';
 
 function param(ctx, name) {
   return ctx?.params && typeof ctx.params === 'object' ? ctx.params[name] : '';
 }
 
 export function registerNovelAiRoutes(app) {
+  ensureNovelSettingsSchema();
   app.post('/api/novels/ai/framework', async (ctx) => {
     try {
       const body = (await ctx.body()) || {};
@@ -83,6 +86,23 @@ export function registerNovelAiRoutes(app) {
     catch (err) { throw badRequest(err.message || '读取小说创作选项失败'); }
   });
 
+  app.get('/api/novels/:id/ai-settings', async (ctx) => {
+    try { ctx.json(getNovelAiSettings(param(ctx, 'id'))); }
+    catch (err) { throw badRequest(err.message || '读取小说 AI 设置失败'); }
+  });
+
+  app.put('/api/novels/:id/ai-settings', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      ctx.json({ ok: true, settings: updateNovelAiSettings(param(ctx, 'id'), body) });
+    } catch (err) { throw badRequest(err.message || '保存小说 AI 设置失败'); }
+  });
+
+  app.get('/api/novels/:id/characters/archive', async (ctx) => {
+    try { ctx.json(listNovelCharacterArchive(param(ctx, 'id'))); }
+    catch (err) { throw badRequest(err.message || '读取小说角色归档失败'); }
+  });
+
   app.put('/api/novels/:id/creative-options', async (ctx) => {
     try {
       const body = (await ctx.body()) || {};
@@ -112,6 +132,125 @@ export function registerNovelAiRoutes(app) {
         instruction: String(body.instruction || ''),
       }));
     } catch (err) { throw badRequest(err.message || '自动补齐角色失败'); }
+  });
+
+  app.get('/api/novels/:id/estimate', async (ctx) => {
+    try {
+      const novel = novelOf(param(ctx, 'id'));
+      const action = String(ctx.query?.action || 'outline');
+      const words = Math.max(1, Number(novel.target_words) || 1000000);
+      const chapterWords = Math.max(1, Number(novel.chapter_words) || 3000);
+      const chapters = Math.max(1, Math.ceil(words / chapterWords));
+      const estimates = {
+        outline: { chapters, llmCalls: Math.ceil(chapters / 20) + 1, risk: chapters > 200 ? '超长项目需要分批执行' : '' },
+        characters: { characters: getNovelAiSettings(novel.id).maxCharacters, llmCalls: 1, risk: '' },
+        'chapter-write': { chapters, llmCalls: chapters * 2, risk: chapters > 50 ? '章节较多，建议夜间分批执行' : '' },
+      };
+      ctx.json({ ok: true, action, estimate: estimates[action] || estimates.outline });
+    } catch (err) { throw badRequest(err.message || '费用预估失败'); }
+  });
+
+  app.post('/api/novels/:id/outline/ai/rewrite-all', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      const novelId = param(ctx, 'id');
+      const novel = novelOf(novelId);
+      const expected = Math.max(1, Math.ceil((Number(novel.target_words) || 1000000) / Math.max(1, Number(novel.chapter_words) || 3000)));
+      const jobId = enqueue({
+        type: 'novel_ai',
+        title: `一键重写全部章节大纲（${expected} 章）`,
+        total: expected,
+        payload: { action: 'rewrite-all', novelId, instruction: String(body.instruction || '') },
+        handler: async (job) => {
+          let done = 0;
+          let last = null;
+          const allResults = [];
+          const warnings = [];
+          for (let from = 1; from <= expected; from += 20) {
+            if (job.isCanceled()) throw new Error('任务已取消');
+            const to = Math.min(expected, from + 19);
+            const r = await planChapters(novel, loadSections(novelId), {
+              from,
+              to,
+              onlyEmpty: false,
+              maxCalls: 20,
+              instruction: String(body.instruction || ''),
+            });
+            last = r;
+            warnings.push(...(r.warnings || []));
+            allResults.push(...(r.results || []));
+            saveOutlineVersion(novelId, r.sections, { source: 'job:rewrite-all', note: `第${from}-${to}章` });
+            done += r.requested;
+            job.step(done, expected);
+            job.log(`已完成第 ${from}-${to} 章`);
+          }
+          return { requested: done, results: allResults, warnings, saved: true, lastVersion: last?.stats || null };
+        },
+      });
+      ctx.json({ ok: true, jobId, total: expected });
+    } catch (err) { throw badRequest(err.message || '创建一键重写任务失败'); }
+  });
+
+  app.post('/api/novels/:id/outline/ai/robust-job', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      const novelId = param(ctx, 'id');
+      const novel = novelOf(novelId);
+      const expected = Math.max(1, Math.ceil((Number(novel.target_words) || 1000000) / Math.max(1, Number(novel.chapter_words) || 3000)));
+      const jobId = enqueue({
+        type: 'novel_ai',
+        title: `稳健生成完整大纲（${expected} 章）`,
+        total: expected + 1,
+        payload: { action: 'robust-outline', novelId },
+        handler: async (job) => {
+          let done = 0;
+          let last = null;
+          for (let from = 1; from <= expected; from += 20) {
+            if (job.isCanceled()) throw new Error('任务已取消');
+            const to = Math.min(expected, from + 19);
+            const r = await planChapters(novel, loadSections(novelId), {
+              from, to, onlyEmpty: false, maxCalls: 20,
+              instruction: String(body.instruction || ''),
+            });
+            last = r;
+            saveOutlineVersion(novelId, r.sections, { source: 'job:robust-outline', note: `第${from}-${to}章` });
+            done += r.requested;
+            job.step(done, expected + 1);
+          }
+          const fill = await fillSections(novel, loadSections(novelId), {
+            save: false,
+            onlyEmpty: true,
+            instruction: String(body.instruction || ''),
+          });
+          saveOutlineVersion(novelId, fill.sections, { source: 'job:robust-outline:fill', note: '非章节分节补齐' });
+          job.step(expected + 1, expected + 1);
+          return { chapterPlan: last, fill, warnings: fill.warnings || [] };
+        },
+      });
+      ctx.json({ ok: true, jobId, total: expected + 1 });
+    } catch (err) { throw badRequest(err.message || '创建稳健大纲任务失败'); }
+  });
+
+  app.post('/api/novels/:id/characters/free-mode/auto-job', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      const novelId = param(ctx, 'id');
+      const mode = characterFreeMode(novelId);
+      const jobId = enqueue({
+        type: 'novel_ai',
+        title: `按剧情补齐角色（最多 ${mode.maxCharacters} 个）`,
+        total: mode.maxCharacters,
+        payload: { action: 'characters-auto', novelId },
+        handler: async (job) => {
+          if (job.isCanceled()) throw new Error('任务已取消');
+          job.step(1, mode.maxCharacters);
+          const result = await autoArchivePlotCharacters(novelId, { apply: body.apply !== false, instruction: String(body.instruction || '') });
+          job.step(result.created?.length || 0, Math.max(1, result.characters?.length || 1));
+          return result;
+        },
+      });
+      ctx.json({ ok: true, jobId, total: mode.maxCharacters });
+    } catch (err) { throw badRequest(err.message || '创建角色自动补齐任务失败'); }
   });
 
   app.post('/api/novels/:id/outline/ai/section', async (ctx) => {

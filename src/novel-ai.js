@@ -13,6 +13,7 @@ import { genreById } from './data/genres.js';
 import { POVS } from './data/dictionaries.js';
 import { nowISO } from './util.js';
 import { buildGenreCreativeBlueprint } from './genre-frameworks.js';
+import { archiveCharacterLink, findArchivedActorByNovelName } from './novel-settings.js';
 
 export const AI_MAX_NEW_CHARACTERS = 8;
 export const AI_MAX_CAST = 200;
@@ -503,9 +504,16 @@ export async function commitCharacters({
   if (newCount > 0) actorsMod.bumpActorSeq();
   for (const item of uniqueList) {
     const key = item.name.toLowerCase();
-    const existingId = byName.get(key);
+    const archived = novelId ? findArchivedActorByNovelName(novelId, item.name) : null;
+    const existingId = archived?.actor_id || byName.get(key);
     if (existingId) {
       created.push({ name: item.name, actorId: existingId, reused: true });
+      if (novelId) archiveCharacterLink(novelId, { id: existingId, name: item.name }, {
+        source: '故事框架/角色提案',
+        reason: item.reason,
+        firstAppearance: item.firstAppearance,
+        storylineRole: item.storylineRole,
+      });
       continue;
     }
     try {
@@ -530,6 +538,12 @@ export async function commitCharacters({
       });
       byName.set(key, actor.id);
       created.push({ name: item.name, actorId: actor.id, reused: false });
+      if (novelId) archiveCharacterLink(novelId, { id: actor.id, name: item.name }, {
+        source: '故事框架/角色提案',
+        reason: item.reason,
+        firstAppearance: item.firstAppearance,
+        storylineRole: item.storylineRole,
+      });
       if (castNames.has(key)) warnings.push(`小说已有同名自定义角色「${item.name}」，已改为引用演员矩阵角色卡，请在表单中移除旧的自定义角色。`);
     } catch (err) {
       failed.push({ name: item.name, error: err.message || '创建角色卡失败' });

@@ -2,6 +2,7 @@
 // 每个题材在运行时生成独立蓝图：爆款钩子、世界规则、循环危机、人物公式、续集发动机。
 
 import { GENRES, genreById } from './data/genres.js';
+import { buildGenreOverride } from './genre-overrides.js';
 
 const CATEGORY_PROFILES = {
   都市: {
@@ -153,6 +154,7 @@ export function buildGenreCreativeBlueprint(genreOrId) {
   const genre = typeof genreOrId === 'object' ? genreOrId : genreById(genreOrId);
   if (!genre?.id) throw new Error('未知题材');
   const p = CATEGORY_PROFILES[genre.cat] || GENERIC_PROFILE;
+  const override = buildGenreOverride(genre);
   const tags = tagsOf(genre);
   const seed = `${genre.cat}|${genre.id}|${genre.name}`;
   const tagLine = tags.join('、') || genre.name;
@@ -164,26 +166,27 @@ export function buildGenreCreativeBlueprint(genreOrId) {
     sourceHook: genre.hook || '',
     creativePositioning: `${genre.name}：以${tagLine}为核心卖点，保持${genre.tone || '题材默认基调'}，用长期循环危机支撑续集。`,
     worldStyle: `${p.worldStyle}；风格关键词：${tagLine}。`,
-    worldRules: `${p.rules}；题材专属规则必须围绕${tagLine}展开。`,
+    worldRules: `${p.rules}；${override.worldRules}`,
     factionLayers: '表层势力制造单元冲突；中层势力跨季博弈；深层隐秘势力只释放痕迹，最终指向终极谜团。',
-    coreLoopCrisis: `${p.crisis}。主角每解决一处危机，都会发现同类问题在更大范围出现。`,
-    ultimateMystery: `${p.mystery}；前期只给碎片线索，不一次性揭晓。`,
-    protagonistFormula: `${p.protagonist}；核心执念与题材钩子“${genre.hook || genre.name}”直接相关。`,
-    protagonistSpecial: `${p.special}；特别之处必须带来代价、短板或道德选择。`,
-    openingFormula: `围绕“${genre.hook || '强事件开局'}”设计开局：先制造不可逆事件，再让主角被迫进入世界规则。`,
+    coreLoopCrisis: `${p.crisis}。${override.coreLoopCrisis}`,
+    ultimateMystery: `${p.mystery}；${override.ultimateMystery}`,
+    protagonistFormula: `${p.protagonist}；${override.protagonistFormula}`,
+    protagonistSpecial: `${p.special}；${override.protagonistSpecial}`,
+    openingFormula: override.openingFormula,
     hitHooks: [
       pick(HIT_VARIANTS, seed, 0),
       pick(HIT_VARIANTS, seed, 1),
       pick(HIT_VARIANTS, seed, 2),
       `围绕${tagLine}制造可传播名场面`,
       `每季至少一次立场反转和一次格局升级`,
+      ...override.hitHooks.slice(0, 2),
     ],
     payoffLoop: '压抑 → 试探 → 反击 → 代价 → 更大真相 → 新目标，形成可持续爽点循环。',
     endingDirection: '回收开局核心意象与主角执念，但保留未开放区域、未解谜团和下一代威胁。',
     sequelEngine: {
       newRegions: `${genre.cat}世界的未开放区域持续扩展`,
       newFactions: '每季引入新势力、旧势力内斗和立场摇摆者',
-      newCrisis: '循环危机换区域、换规则、换对手，但根源始终指向终极谜团',
+      newCrisis: `${override.sequelEngine}；根源始终指向终极谜团`,
       characterSpinoffs: '固定小队与反派的个人往事均可独立成番外',
       mysteryLayers: '微型伏笔单卷回收，中型伏笔跨季回收，顶级伏笔保留到终章',
     },

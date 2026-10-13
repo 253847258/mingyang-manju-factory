@@ -3,8 +3,7 @@
 
 import { GENRES, genreById } from './data/genres.js';
 import { chatJSON, llmStatus } from './llm.js';
-import { get, run } from './db.js';
-import { nowISO } from './util.js';
+import { getNovelAiSettings, updateNovelAiSettings } from './novel-settings.js';
 
 const TEXT = (v, max = 300) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 const STYLE_WORDS = ['热血', '爽文', '悬疑', '暗黑', '温情', '史诗', '冷峻', '浪漫', '轻松', '烧脑'];
@@ -14,10 +13,21 @@ export const CREATIVE_TONES = Object.freeze(
   STYLE_WORDS.flatMap((style) => RHYTHM_WORDS.map((rhythm) => `${style}${rhythm}`)).slice(0, 100),
 );
 
+export const CREATIVE_TONE_DETAILS = Object.freeze(
+  CREATIVE_TONES.map((name, index) => ({
+    name,
+    style: STYLE_WORDS[Math.floor(index / RHYTHM_WORDS.length)],
+    mood: RHYTHM_WORDS[index % RHYTHM_WORDS.length],
+    pace: index % RHYTHM_WORDS.length < 3 ? 'fast' : (index % RHYTHM_WORDS.length === 1 ? 'slow' : 'medium'),
+    suitableGenres: index % 3 === 0 ? ['都市', '玄幻', '科幻'] : index % 3 === 1 ? ['悬疑', '历史', '灵异'] : ['言情', '职场', '二次元'],
+  })),
+);
+
 export function listCreativeOptions() {
   return {
     ok: true,
     tones: [...CREATIVE_TONES],
+    toneDetails: CREATIVE_TONE_DETAILS.map((x) => ({ ...x })),
     genreCount: GENRES.length,
     autoOptions: {
       pov: true,
@@ -27,37 +37,25 @@ export function listCreativeOptions() {
   };
 }
 
-function safeJson(v, fallback) {
-  try {
-    const out = JSON.parse(v || '');
-    return out == null ? fallback : out;
-  } catch { return fallback; }
-}
-
 export function getNovelCreativeOptions(novelId) {
-  const novel = get('SELECT * FROM novels WHERE id = ?', novelId);
-  if (!novel) throw new Error('小说不存在');
-  const meta = safeJson(novel.meta, {});
+  const settings = getNovelAiSettings(novelId);
   return {
     ok: true,
     novelId,
-    titleDescription: TEXT(meta.titleDescription, 500),
-    autoPov: Boolean(meta.autoPov),
-    autoCast: Boolean(meta.autoCast),
-    unlimitedCharacters: Boolean(meta.unlimitedCharacters),
+    titleDescription: settings.titleDescription,
+    autoPov: settings.autoPov,
+    autoCast: settings.autoCast,
+    unlimitedCharacters: settings.unlimitedCharacters,
   };
 }
 
 export function updateNovelCreativeOptions(novelId, patch = {}) {
-  const novel = get('SELECT * FROM novels WHERE id = ?', novelId);
-  if (!novel) throw new Error('小说不存在');
-  const meta = safeJson(novel.meta, {});
-  meta.titleDescription = TEXT(patch.titleDescription, 500);
-  meta.autoPov = Boolean(patch.autoPov);
-  meta.autoCast = Boolean(patch.autoCast);
-  meta.unlimitedCharacters = Boolean(patch.unlimitedCharacters);
-  meta.creativeOptionsUpdatedAt = nowISO();
-  run('UPDATE novels SET meta = ?, updated_at = ? WHERE id = ?', JSON.stringify(meta), nowISO(), novelId);
+  updateNovelAiSettings(novelId, {
+    titleDescription: patch.titleDescription,
+    autoPov: Boolean(patch.autoPov),
+    autoCast: Boolean(patch.autoCast),
+    unlimitedCharacters: Boolean(patch.unlimitedCharacters),
+  });
   return getNovelCreativeOptions(novelId);
 }
 

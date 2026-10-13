@@ -16,6 +16,7 @@
     "data:prune": "node scripts/prune-data.mjs",
     "test": "node scripts/run-tests.mjs --fast",
     "test:fast": "node scripts/run-tests.mjs --fast",
+    "test:ui": "node tests/ui-novel-smoke.mjs",
     "test:full": "node scripts/run-tests.mjs --full"
   },
   "optionalDependencies": {

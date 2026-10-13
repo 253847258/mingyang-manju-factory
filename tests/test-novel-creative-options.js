@@ -36,6 +36,7 @@ await check('基调正好 100 种且不重复', async () => {
   assert.equal(CREATIVE_TONES.length, 100);
   assert.equal(new Set(CREATIVE_TONES).size, 100);
   assert.equal(listCreativeOptions().tones.length, 100);
+  assert.equal(listCreativeOptions().toneDetails.length, 100);
   return CREATIVE_TONES.slice(0, 3).join('、');
 });
 await check('标题自动规划题材可从 100 种中选择', async () => {

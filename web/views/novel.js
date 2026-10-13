@@ -1066,20 +1066,14 @@ async function autoCharactersFromPlot({ silentIfNone = false, quiet = false } = 
     const mode = await saveFreeMode(true, { silent: true });
     if (!mode) return null;
   }
-  const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/characters/free-mode/auto`, {
+  if (!quiet && !(await S.ctx.confirm('将启动后台角色缺口任务，按剧情自动创建并归档角色。继续？'))) return null;
+  const estimate = await S.ctx.api.get(`/api/novels/${S.currentId}/estimate?action=characters`).catch(() => null);
+  const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/characters/free-mode/auto-job`, {
     apply: true,
     instruction: '根据故事大纲、章首章末、故事线和现有角色缺口自动补齐角色。',
   }));
-  if (!r) return null;
-  await reloadDetail();
-  await loadList();
-  S.actorsLoaded = false;
-  await loadActors();
-  if (quiet) {
-    if (r.created?.length) toast(`角色自由模式已归档 ${r.created.length} 个剧情角色`, 'ok');
-  } else if (!silentIfNone || r.characters?.length || r.warnings?.length) {
-    showAutoCharacterReport(r);
-  }
+  if (!r?.jobId) return null;
+  watchAiJob(r.jobId, `角色剧情补齐（预计 ${estimate?.estimate?.llmCalls || 1} 次调用）`);
   return r;
 }
 
@@ -1265,27 +1259,13 @@ async function startOutlineGen() {
     await new Promise((resolve) => setTimeout(resolve, 0));
     const useFallback = await confirmOutlineFallback(`整份大纲 JSON 生成失败：${primary.__error}\n\n是否切换为稳健模式？将分 ${Math.ceil(planned / 20)} 批逐章规划，再逐节补齐非章节内容。`);
     if (!useFallback) { toast(`大纲生成失败：${primary.__error}`, 'err'); return; }
-    r = await guard(async () => {
-      let last = null;
-      for (let from = 1; from <= planned; from += 20) {
-        const to = Math.min(planned, from + 19);
-        last = await S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/chapters`, {
-          from,
-          to,
-          onlyEmpty: false,
-          save: true,
-          maxCalls: 20,
-          instruction: '按整条故事线规划每章章首、章末和上下文衔接，确保前后逻辑一致。',
-        });
-      }
-      const fill = await S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/fill`, {
-        save: true,
-        onlyEmpty: true,
-        instruction: '优先保证故事大纲、正文承接和头尾逻辑故事线闭环。',
-      });
-      return { ...last, fill, planned, summary: { calls: last?.calls || 0, warnings: fill?.warnings || [] } };
-    });
-    if (!r) return;
+    const job = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/robust-job`, {
+      instruction: '按整条故事线规划每章章首、章末和上下文衔接，确保前后逻辑一致。',
+    }));
+    if (!job?.jobId) return;
+    S.tab = 'outline';
+    watchAiJob(job.jobId, '稳健大纲生成');
+    return;
   }
   const plannedCount = (r.outline?.sections?.chapters || []).length || r.planned || r.results?.length || 0;
   toast(`大纲已生成：规划 ${plannedCount} 章，${r.summary?.calls || 0} 次模型调用${r.summary?.warnings?.length ? `（${r.summary.warnings.length} 条提示）` : ''}`, 'ok');
@@ -1472,32 +1452,15 @@ async function rewriteAllChapterPlans() {
   const rows = S.detail?.outline?.sections?.chapters || [];
   const stats = chapterPlanStatsLocal(rows, S.detail?.novel);
   if (!stats.expected) { toast('当前没有可规划的章节', 'err'); return; }
-  if (!(await S.ctx.confirm(`将从第 1 章到第 ${stats.expected} 章全部重写，严格规划章首状态、章末落点、上下文衔接和故事线锚点。共 ${Math.ceil(stats.expected / 20)} 批，可能产生大量 LLM 费用，继续？`))) return;
-  let result = null;
-  const collected = [];
-  const r = await guard(async () => {
-    for (let from = 1; from <= stats.expected; from += 20) {
-      const to = Math.min(stats.expected, from + 19);
-      result = await S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/chapters`, {
-        from,
-        to,
-        onlyEmpty: false,
-        save: true,
-        maxCalls: 20,
-        instruction: '整章大纲必须从章首状态推进到章末状态，承上启下，并与整条故事线、重大转折和结局逻辑一致。',
-      });
-      collected.push(...(result.results || []));
-    }
-    return { ...result, results: collected };
-  });
-  if (!r) return;
-  toast(`全部章节大纲已重写：${r.results?.length || 0} 章`, 'ok');
+  const estimate = await guard(async () => S.ctx.api.get(`/api/novels/${S.currentId}/estimate?action=outline`));
+  const calls = estimate?.estimate?.llmCalls || Math.ceil(stats.expected / 20) + 1;
+  if (!(await S.ctx.confirm(`将从第 1 章到第 ${stats.expected} 章全部重写，预计约 ${calls} 次 LLM 调用。任务会进入后台队列，支持进度和取消。继续？`))) return;
+  const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/rewrite-all`, {
+    instruction: '整章大纲必须从章首状态推进到章末状态，承上启下，并与整条故事线、重大转折和结局逻辑一致。',
+  }));
+  if (!r?.jobId) return;
   S.tab = 'outline';
-  await reloadDetail();
-  await loadList();
-  if (S.freeMode?.enabled) await autoCharactersFromPlot({ silentIfNone: true, quiet: true });
-  if (r.mocked) toast('全部章节已生成离线占位大纲', 'warn');
-  showOutlineAiReport({ chapterPlan: r });
+  watchAiJob(r.jobId, `全部章节大纲重写（${r.total} 章）`);
 }
 
 function optimizeOutline() {
@@ -1599,6 +1562,45 @@ function watchJob(jobId) {
 }
 function stopWatching() {
   if (S.stopWatch) { try { S.stopWatch(); } catch { /* ignore */ } S.stopWatch = null; }
+}
+
+function watchAiJob(jobId, label) {
+  stopWatching();
+  S.jobId = jobId;
+  S.job = { status: 'queued', progress: 0, done: 0, total: 1 };
+  render();
+  const onUpdate = (job) => {
+    if (!job) return;
+    S.job = job;
+    const bar = S.root?.querySelector('.nv-job');
+    if (bar) {
+      const holder = document.createElement('div');
+      holder.innerHTML = jobBarHtml();
+      const fresh = holder.firstElementChild;
+      if (fresh && bar.parentElement) bar.replaceWith(fresh);
+    }
+    if (!['done', 'error', 'canceled'].includes(job.status)) return;
+    stopWatching();
+    if (job.status === 'done') toast(`${label}完成`, 'ok');
+    else if (job.status === 'error') toast(`${label}失败：${job.error || '未知错误'}`, 'err');
+    else toast(`${label}已取消`, 'info');
+    Promise.all([reloadDetail(), loadList()]).catch(() => { /* ignore */ });
+    if (S.freeMode?.enabled && label.includes('大纲')) {
+      autoCharactersFromPlot({ silentIfNone: true, quiet: true }).catch(() => { /* ignore */ });
+    }
+  };
+  if (S.ctx.watchJob) {
+    S.stopWatch = S.ctx.watchJob(jobId, onUpdate);
+  } else {
+    const timer = setInterval(async () => {
+      try {
+        const r = await S.ctx.api.get(`/api/jobs/${jobId}`);
+        onUpdate(r.job);
+      } catch { /* ignore */ }
+    }, 1000);
+    S.timers.push(timer);
+    S.stopWatch = () => clearInterval(timer);
+  }
 }
 
 async function startWrite(payload) {
