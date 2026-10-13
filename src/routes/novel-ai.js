@@ -9,6 +9,7 @@ import { writeLongChapter } from '../novel-writing.js';
 import { buildNovelAssets } from '../novel-assets.js';
 import { characterFreeMode, updateCharacterFreeMode, discoverPlotCharacters, autoArchivePlotCharacters } from '../novel-characters.js';
 import { buildGenreCreativeBlueprint, listGenreCreativeBlueprints } from '../genre-frameworks.js';
+import { listCreativeOptions, planGenreFromTitle, getNovelCreativeOptions, updateNovelCreativeOptions } from '../novel-creative-options.js';
 
 function param(ctx, name) {
   return ctx?.params && typeof ctx.params === 'object' ? ctx.params[name] : '';
@@ -39,6 +40,18 @@ export function registerNovelAiRoutes(app) {
     }
   });
 
+  app.get('/api/novels/ai/creative-options', async (ctx) => {
+    try { ctx.json(listCreativeOptions()); }
+    catch (err) { throw badRequest(err.message || '读取创作选项失败'); }
+  });
+
+  app.post('/api/novels/ai/plan-genre', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      ctx.json(await planGenreFromTitle(body));
+    } catch (err) { throw badRequest(err.message || '题材自动规划失败'); }
+  });
+
   app.post('/api/novels/ai/commit-characters', async (ctx) => {
     try {
       const body = (await ctx.body()) || {};
@@ -63,6 +76,18 @@ export function registerNovelAiRoutes(app) {
   app.get('/api/novels/:id/characters/free-mode', async (ctx) => {
     try { ctx.json(characterFreeMode(param(ctx, 'id'))); }
     catch (err) { throw badRequest(err.message || '读取角色自由模式失败'); }
+  });
+
+  app.get('/api/novels/:id/creative-options', async (ctx) => {
+    try { ctx.json(getNovelCreativeOptions(param(ctx, 'id'))); }
+    catch (err) { throw badRequest(err.message || '读取小说创作选项失败'); }
+  });
+
+  app.put('/api/novels/:id/creative-options', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      ctx.json({ ok: true, options: updateNovelCreativeOptions(param(ctx, 'id'), body) });
+    } catch (err) { throw badRequest(err.message || '保存小说创作选项失败'); }
   });
 
   app.put('/api/novels/:id/characters/free-mode', async (ctx) => {

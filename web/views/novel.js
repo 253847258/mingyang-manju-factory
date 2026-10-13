@@ -137,6 +137,7 @@ const FRAMEWORK_MODULES = [
     ['主角固定小队', 'allyTeam'], ['反派三层金字塔', 'villainPyramid'], ['中立摇摆角色', 'neutralCharacters'],
   ]],
   ['模块 3｜主线分段规划', [
+    ['推荐叙事视角', 'recommendedPov'], ['推荐角色规模', 'recommendedCastSize'],
     ['主线阶段目标', 'mainPlot'], ['分季锁坑规划', 'seasonPlan'], ['开局方向', 'openingDirection'], ['结局方向', 'endingDirection'],
   ]],
   ['模块 4｜支线储备库', [['四类支线弹药库', 'sidequests'], ['爆点清单', 'highlights']]],
@@ -152,6 +153,7 @@ const S = {
   currentId: null, detail: null,
   assets: null,
   freeMode: null,
+  creativeOptions: null,
   tab: 'params',
   genres: [], categories: [], povs: POV_FALLBACK, tones: TONE_FALLBACK, sections: OUTLINE_SECTIONS_FALLBACK, limits: null,
   genreCat: '全部', genreQ: '',
@@ -265,6 +267,10 @@ async function loadMeta() {
   if (m.limits) S.limits = { castSize: m.limits.castSize || limits().castSize, chapterWords: m.limits.chapterWords || limits().chapterWords, targetWords: m.limits.targetWords || limits().targetWords };
   if (m.scales) S.scales = m.scales;
   if (m.llm) S.llm = m.llm;
+  try {
+    const creative = await S.ctx.api.get('/api/novels/ai/creative-options');
+    if (Array.isArray(creative?.tones) && creative.tones.length >= 100) S.tones = creative.tones.slice(0, 100);
+  } catch { /* 保留字典兜底 */ }
 }
 
 async function loadList() {
@@ -283,14 +289,16 @@ async function loadActors() {
 }
 
 async function openNovel(id) {
-  const [detail, assets, freeMode] = await Promise.all([
+  const [detail, assets, freeMode, creativeOptions] = await Promise.all([
     S.ctx.api.get(`/api/novels/${id}`),
     S.ctx.api.get(`/api/novels/${id}/assets`).catch(() => ({ characters: [], environments: [], props: [] })),
     S.ctx.api.get(`/api/novels/${id}/characters/free-mode`).catch(() => null),
+    S.ctx.api.get(`/api/novels/${id}/creative-options`).catch(() => null),
   ]);
   S.detail = detail;
   S.assets = assets;
   S.freeMode = freeMode;
+  S.creativeOptions = creativeOptions;
   S.currentId = id;
   S.view = 'workspace';
   if (S.detail.llm) S.llm = S.detail.llm;
@@ -302,14 +310,16 @@ async function openNovel(id) {
 
 async function reloadDetail() {
   if (!S.currentId) return;
-  const [detail, assets, freeMode] = await Promise.all([
+  const [detail, assets, freeMode, creativeOptions] = await Promise.all([
     S.ctx.api.get(`/api/novels/${S.currentId}`),
     S.ctx.api.get(`/api/novels/${S.currentId}/assets`).catch(() => ({ characters: [], environments: [], props: [] })),
     S.ctx.api.get(`/api/novels/${S.currentId}/characters/free-mode`).catch(() => null),
+    S.ctx.api.get(`/api/novels/${S.currentId}/creative-options`).catch(() => null),
   ]);
   S.detail = detail;
   S.assets = assets;
   S.freeMode = freeMode;
+  S.creativeOptions = creativeOptions;
   if (S.detail.llm) S.llm = S.detail.llm;
   if (S.detail.novel) applyFormFromNovel(S.detail.novel);
   render();
@@ -325,6 +335,10 @@ function applyFormFromNovel(n) {
     free_mode: S.freeMode?.enabled !== false,
     free_max: num(S.freeMode?.maxCharacters, num(n.cast_size, 20)),
     free_style: S.freeMode?.stylePolicy || 'plot-driven',
+    title_description: S.creativeOptions?.titleDescription || '',
+    auto_pov: Boolean(S.creativeOptions?.autoPov),
+    auto_cast: Boolean(S.creativeOptions?.autoCast),
+    unlimited_characters: Boolean(S.creativeOptions?.unlimitedCharacters),
   };
 }
 
@@ -336,6 +350,7 @@ function newForm() {
     chapter_words: limits().chapterWords.default, pov: S.povs[0]?.id || 'third-limited', seasons: 1,
     framework_intro: '', ref_doc_path: '', ref_doc_name: '', actor_ids: [], custom_actors: [],
     free_mode: true, free_max: limits().castSize.default, free_style: 'plot-driven',
+    title_description: '', auto_pov: false, auto_cast: false, unlimited_characters: false,
   };
 }
 const castTotal = () => (S.form?.actor_ids?.length || 0) + (S.form?.custom_actors?.length || 0);
@@ -400,6 +415,7 @@ function formHtml(mode) {
   const lim = limits();
   const total = castTotal();
   const overCast = total > num(f.cast_size, 20);
+  const toneOptions = [...new Set([f.tone, ...(S.tones || [])].filter(Boolean))].slice(0, 100);
   const genre = S.genres.find((g) => g.id === f.genre) || null;
   const shown = S.genres.filter((g) => (S.genreCat === '全部' || g.cat === S.genreCat)
     && (!S.genreQ || `${g.name} ${g.tags?.join(' ') || ''} ${g.desc || ''}`.toLowerCase().includes(S.genreQ.toLowerCase())));
@@ -412,10 +428,22 @@ function formHtml(mode) {
 
     <div class="nv-step"><em>1</em>题材与参数${genre ? `　<span class="nv-pill">已选：${esc(genre.name)}（${esc(genre.cat)}）</span>` : '　<span class="nv-pill">未选</span>'}</div>
     <div class="nv-row">
-      <div class="nv-f"><span class="nv-lbl">标题</span><input class="nv-input" id="nv-title" data-role="title" style="min-width:220px" placeholder="例如：剑落青芜" value="${esc(f.title)}"></div>
-      <div class="nv-f"><span class="nv-lbl">基调</span><select class="nv-select" data-role="tone" style="min-width:130px">${S.tones.map((t) => `<option ${t === f.tone ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
-      <div class="nv-f"><span class="nv-lbl">叙事视角</span><select class="nv-select" data-role="pov" style="min-width:190px">${S.povs.map((p) => `<option value="${esc(p.id)}" ${p.id === f.pov ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
-      <div class="nv-f"><span class="nv-lbl">角色规模上限（≤200）</span><input class="nv-input nv-num" id="nv-cast" type="number" min="${lim.castSize.min}" max="${lim.castSize.max}" data-role="cast_size" value="${num(f.cast_size, 20)}"></div>
+      <div class="nv-f nv-grow"><span class="nv-lbl">标题</span>
+        <div class="nv-row"><input class="nv-input nv-grow" id="nv-title" data-role="title" style="min-width:220px" placeholder="例如：剑落青芜" value="${esc(f.title)}">
+        <button class="nv-btn nv-btn-sm" data-act="plan-genre" title="根据标题和标题描述自动从 100 种题材中选择">AI 自动规划题材</button></div>
+        <input class="nv-input" data-role="title_description" placeholder="标题描述：用一句话补充标题意象、主角或核心冲突" value="${esc(f.title_description || '')}" style="margin-top:4px">
+      </div>
+      <div class="nv-f"><span class="nv-lbl">基调（100 种）</span><select class="nv-select" data-role="tone" style="min-width:150px">${toneOptions.map((t) => `<option ${t === f.tone ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
+      <div class="nv-f"><span class="nv-lbl">叙事视角</span>
+        <select class="nv-select" data-role="pov" style="min-width:190px">${S.povs.map((p) => `<option value="${esc(p.id)}" ${p.id === f.pov ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
+        <label class="nv-hint" style="cursor:pointer"><input type="checkbox" data-role="auto_pov" ${f.auto_pov ? 'checked' : ''}> AI 自动规划视角</label>
+      </div>
+      <div class="nv-f"><span class="nv-lbl">角色规模上限（≤200）</span>
+        <input class="nv-input nv-num" id="nv-cast" type="number" min="${lim.castSize.min}" max="${lim.castSize.max}" data-role="cast_size" value="${num(f.cast_size, 20)}">
+        <label class="nv-hint" style="cursor:pointer"><input type="checkbox" data-role="auto_cast" ${f.auto_cast ? 'checked' : ''}> AI 自动规划规模</label>
+        <button class="nv-btn nv-btn-sm ${f.unlimited_characters ? 'nv-btn-a' : ''}" data-act="unlimited-cast">${f.unlimited_characters ? '无创意限制：开启' : '无创意限制'}</button>
+        <input type="checkbox" data-role="unlimited_characters" ${f.unlimited_characters ? 'checked' : ''} style="display:none">
+      </div>
       <div class="nv-f"><span class="nv-lbl">季/卷数</span><input class="nv-input nv-num" id="nv-seasons" type="number" min="1" max="99" data-role="seasons" value="${num(f.seasons, 1)}"></div>
     </div>
     <div class="nv-row" style="margin-top:8px">
@@ -888,6 +916,8 @@ function collectForm() {
   const f = S.form;
   const setIf = (role, key) => { const v = readVal(role); if (v !== undefined) f[key] = v; };
   setIf('title', 'title'); setIf('tone', 'tone'); setIf('pov', 'pov');
+  setIf('title_description', 'title_description');
+  setIf('auto_pov', 'auto_pov'); setIf('auto_cast', 'auto_cast'); setIf('unlimited_characters', 'unlimited_characters');
   setIf('cast_size', 'cast_size'); setIf('seasons', 'seasons');
   setIf('target_words', 'target_words'); setIf('chapter_words', 'chapter_words');
   setIf('framework_intro', 'framework_intro');
@@ -907,6 +937,11 @@ function collectForm() {
 
 async function saveForm() {
   const f = collectForm();
+  if (f.unlimited_characters) {
+    f.cast_size = limits().castSize.max;
+    f.free_max = limits().castSize.max;
+    f.auto_cast = true;
+  }
   if (!String(f.title || '').trim()) { toast('请填写小说标题', 'err'); return; }
   if (!f.genre) { toast('请选择题材（100 种可选，支持分类筛选与关键词搜索）', 'err'); return; }
   const lim = limits();
@@ -932,6 +967,12 @@ async function saveForm() {
         stylePolicy: f.free_style || 'plot-driven',
         autoCreate: true,
       });
+      await S.ctx.api.put(`/api/novels/${r.novel.id}/creative-options`, {
+        titleDescription: f.title_description || '',
+        autoPov: Boolean(f.auto_pov),
+        autoCast: Boolean(f.auto_cast),
+        unlimitedCharacters: Boolean(f.unlimited_characters),
+      });
       await loadList();
       S.formMode = 'edit';
       await openNovel(r.novel.id);
@@ -944,6 +985,12 @@ async function saveForm() {
       maxCharacters: num(f.free_max, num(f.cast_size, 20)),
       stylePolicy: f.free_style || 'plot-driven',
       autoCreate: true,
+    });
+    await S.ctx.api.put(`/api/novels/${S.currentId}/creative-options`, {
+      titleDescription: f.title_description || '',
+      autoPov: Boolean(f.auto_pov),
+      autoCast: Boolean(f.auto_cast),
+      unlimitedCharacters: Boolean(f.unlimited_characters),
     });
     await reloadDetail();
     await loadList();
@@ -969,6 +1016,27 @@ async function saveFreeMode(enabledOverride = undefined, { silent = false } = {}
   if (!silent) toast(`角色自由模式已${r.mode.enabled ? '开启' : '关闭'}`, 'ok');
   if (!silent) render();
   return r.mode;
+}
+
+async function planGenreFromForm() {
+  S.form = collectForm();
+  if (!String(S.form.title || '').trim() && !String(S.form.title_description || '').trim()) {
+    toast('请先填写标题或标题描述', 'err');
+    return;
+  }
+  const r = await guard(async () => S.ctx.api.post('/api/novels/ai/plan-genre', {
+    title: S.form.title || '',
+    titleDescription: S.form.title_description || '',
+    tone: S.form.tone || '',
+  }));
+  if (!r?.genreId) return;
+  S.form.genre = r.genreId;
+  const g = S.genres.find((x) => x.id === r.genreId);
+  if (g?.tone) S.form.tone = g.tone;
+  S.genreCat = g?.cat || S.genreCat;
+  S.genreQ = '';
+  render();
+  toast(`AI 规划题材：${r.genreName}（${Math.round((r.confidence || 0) * 100)}%）${r.reason ? `｜${r.reason}` : ''}`, 'ok');
 }
 
 function showAutoCharacterReport(r) {
@@ -1037,6 +1105,7 @@ function aiFrameworkPayload() {
   const f = collectForm();
   return {
     title: f.title || '',
+    titleDescription: f.title_description || '',
     genre: f.genre || '',
     tone: f.tone || '',
     pov: f.pov || '',
@@ -1044,6 +1113,9 @@ function aiFrameworkPayload() {
     targetWords: num(f.target_words, 1000000),
     chapterWords: num(f.chapter_words, 2000),
     seasons: num(f.seasons, 1),
+    autoPov: Boolean(f.auto_pov),
+    autoCast: Boolean(f.auto_cast || f.unlimited_characters),
+    unlimitedCharacters: Boolean(f.unlimited_characters),
     actorIds: f.actor_ids || [],
     customActors: (f.custom_actors || []).filter((c) => (c.name || '').trim() || (c.desc || '').trim()),
     refDocPath: f.ref_doc_path || '',
@@ -1150,6 +1222,16 @@ function showAiFrameworkPreview(proposal, payload) {
     S.form = collectForm();
     S.form.title = selectedTitle;
     S.form.framework_intro = frameworkText;
+    if (payload.autoPov && framework.recommendedPov) {
+      const recommended = String(framework.recommendedPov);
+      const pov = S.povs.find((x) => x.id === recommended || x.name === recommended) || S.povs.find((x) => recommended.includes(x.name) || x.name.includes(recommended));
+      if (pov) S.form.pov = pov.id;
+    }
+    if ((payload.autoCast || payload.unlimitedCharacters) && framework.recommendedCastSize) {
+      const n = Math.min(limits().castSize.max, Math.max(1, num(framework.recommendedCastSize, S.form.cast_size)));
+      S.form.cast_size = n;
+      S.form.free_max = n;
+    }
     if (createdNames.size) {
       S.form.custom_actors = (S.form.custom_actors || []).filter((c) => !createdNames.has(String(c.name || '').toLowerCase()));
       S.form.actor_ids = [...new Set([...(S.form.actor_ids || []), ...createdActorIds])];
@@ -1677,6 +1759,18 @@ async function onClickEvent(e) {
     }
     case 'cast-warn': toast('角色总数超过角色规模，请先调整后再保存', 'err'); return;
     case 'save-form': await saveForm(); return;
+    case 'plan-genre': await planGenreFromForm(); return;
+    case 'unlimited-cast': {
+      S.form = collectForm();
+      S.form.unlimited_characters = !S.form.unlimited_characters;
+      if (S.form.unlimited_characters) {
+        S.form.auto_cast = true;
+        S.form.cast_size = limits().castSize.max;
+        S.form.free_max = limits().castSize.max;
+      }
+      render();
+      return;
+    }
     case 'ai-framework': await openAiFramework(); return;
     case 'genre-blueprint': await showGenreBlueprint(el.dataset.id); return;
     case 'upload-ref': S.root.querySelector('#nv-ref-file')?.click(); return;

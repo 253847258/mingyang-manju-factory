@@ -20,6 +20,8 @@ export const AI_MAX_REF_CHARS = 12000;
 
 const FRAMEWORK_FIELDS = [
   ['logline', '一句话故事'],
+  ['recommendedPov', '推荐叙事视角'],
+  ['recommendedCastSize', '推荐角色规模'],
   ['worldStyle', '世界风格'],
   ['worldBackground', '基础背景与开放区域'],
   ['worldRules', '底层规则体系'],
@@ -138,6 +140,7 @@ export function scalePlanOf(input = {}) {
 }
 
 function povNameOf(input) {
+  if (input.autoPov) return 'AI 自动选择最适合本故事和漫剧拍摄的视角';
   const pov = POVS.find((p) => p.id === input.pov || p.name === input.pov);
   return pov?.name || text(input.pov || '第三人称限知', 40);
 }
@@ -204,6 +207,9 @@ export function buildFrameworkPrompt(input = {}, refText = '') {
     `题材说明：${text(genre.desc, 200) || '无'}`,
     `基调：${text(input.tone || genre.tone, 30) || '未定'}`,
     `叙事视角：${povName}`,
+    `AI自动规划视角：${input.autoPov ? '开启' : '关闭'}`,
+    `AI自动规划角色规模：${input.autoCast ? '开启' : '关闭'}`,
+    `无固定角色上限：${input.unlimitedCharacters ? '是（按剧情需要，系统保留 200 安全硬上限）' : '否'}`,
     `目标总字数：${Number(input.targetWords) || 1000000}（${scale.band}）`,
     `单章字数：${Number(input.chapterWords) || 2000}`,
     `用户季数：${Number(input.seasons) || 1}`,
@@ -229,6 +235,8 @@ export function buildFrameworkPrompt(input = {}, refText = '') {
       titleAlternatives: ['', ''],
       framework: {
         logline: '',
+        recommendedPov: '第三人称限知/第一人称/多视角等',
+        recommendedCastSize: 20,
         worldStyle: '',
         worldBackground: '',
         worldRules: '',
@@ -276,6 +284,8 @@ export function buildFrameworkPrompt(input = {}, refText = '') {
     '5. 必须根据目标总字数自动规划季数和阶段目标；长篇及以上不得在前 3 季完成终极目标。',
     '6. 结局方向必须与开局方向形成闭环；终极谜团只释放碎片线索，不得一次揭晓。',
     '7. 伏笔必须分微型、中型、顶级核心三类，并写明分批释放、分批回收规则。',
+    input.autoPov ? '7.1 recommendedPov 必须给出最适合故事的视角名称或 ID，并说明理由。' : '',
+    input.autoCast ? '7.2 recommendedCastSize 必须根据剧情规模给出建议角色数量，且不超过 200。' : '',
     `8. 新角色最多 ${AI_MAX_NEW_CHARACTERS} 个；已有角色够用就返回空数组。`,
     `9. 新角色不得与已有角色重名。已有角色名单：${existingNames.length ? existingNames.join('、') : '无'}。`,
     '10. 每个新角色必须写清剧情作用；没有剧情作用的角色不要推荐。',
@@ -293,6 +303,8 @@ export function buildMockProposal(input = {}, warnings = []) {
   const tag = '【离线占位】';
   const framework = {
     logline: `${tag}${title}讲述主角在${genreName}世界里被卷入一场无法回避的冲突，并在一次次选择中完成成长。`,
+    recommendedPov: input.autoPov ? '第三人称限知（跟随主角）' : (input.pov || 'third-limited'),
+    recommendedCastSize: input.autoCast ? Math.min(30, Number(input.castSize) || 20) : (Number(input.castSize) || 20),
     worldStyle: `${tag}${blueprint.worldStyle}`,
     worldBackground: `${tag}基础背景包含时代、世界形态、地理分区；核心区域已开放，同时预留大量未开放区域作为后续新地图。`,
     worldRules: `${tag}${blueprint.worldRules}`,
