@@ -112,9 +112,14 @@ try {
   await page.locator('.overlay .modal').first().waitFor({ timeout: 8000 });
   await page.waitForTimeout(200);
   ok('题材生成自动归档到历史', await page.locator('[data-a="apply"]').count() >= 1);
+  ok('历史支持收藏置顶', await page.locator('[data-a="fav"]').count() >= 1);
+  await page.locator('[data-a="fav"]').first().click();
+  await page.waitForTimeout(600);
+  await page.locator('[data-a="apply"]').first().waitFor({ timeout: 8000 });
   await page.locator('[data-a="apply"]').first().click();
   await page.waitForTimeout(300);
   ok('历史一键恢复填写状态', (await page.locator('[data-role="framework_intro"]').inputValue()).includes('模块 7'));
+  ok('历史快选下拉（收藏置顶）', await page.locator('[data-role="historyQuick"]').count() === 1);
 
   // 模式三：AI 头脑风暴
   await page.locator('[data-act="genre-mode"][data-mode="brainstorm"]').click();

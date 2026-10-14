@@ -42,6 +42,7 @@ export function ensureGenreHistorySchema() {
   ensureColumn('genre_generator_history', 'cast_size', 'cast_size INTEGER');
   ensureColumn('genre_generator_history', 'seasons', 'seasons INTEGER');
   ensureColumn('genre_generator_history', 'target_words', 'target_words INTEGER');
+  ensureColumn('genre_generator_history', 'favorite', 'favorite INTEGER NOT NULL DEFAULT 0');
   schemaReady = true;
 }
 
@@ -67,6 +68,7 @@ function rowToItem(row) {
     options: safeJson(row.options, {}),
     source: row.source || 'generator',
     usedCount: Number(row.used_count) || 0,
+    favorite: Boolean(row.favorite),
     title: row.title || '',
     titleDescription: row.title_description || '',
     pov: row.pov || '',
@@ -85,8 +87,17 @@ export function getGenreHistory(id) {
 
 export function listGenreHistory({ limit = 50 } = {}) {
   ensureGenreHistorySchema();
-  const rows = all('SELECT * FROM genre_generator_history ORDER BY rowid DESC LIMIT ?', Math.max(1, Math.min(200, Number(limit) || 50)));
+  // 收藏置顶，其次新→旧（按 rowid，不用 created_at）
+  const rows = all('SELECT * FROM genre_generator_history ORDER BY favorite DESC, rowid DESC LIMIT ?', Math.max(1, Math.min(200, Number(limit) || 50)));
   return { ok: true, total: rows.length, items: rows.map(rowToItem) };
+}
+
+export function toggleGenreHistoryFavorite(id) {
+  ensureGenreHistorySchema();
+  const row = get('SELECT id, favorite FROM genre_generator_history WHERE id = ?', id);
+  if (!row) return null;
+  run('UPDATE genre_generator_history SET favorite = ?, updated_at = ? WHERE id = ?', row.favorite ? 0 : 1, nowISO(), id);
+  return getGenreHistory(id);
 }
 
 // 同一 genreId 只保留一条（再次生成覆盖更新），避免历史里堆重复项。
@@ -134,10 +145,13 @@ export function saveGenreHistory(genre = {}, { source = 'generator' } = {}) {
 export function pruneGenreHistory(max = GENRE_HISTORY_MAX) {
   ensureGenreHistorySchema();
   const keep = Math.max(1, Number(max) || GENRE_HISTORY_MAX);
-  const rows = all('SELECT id FROM genre_generator_history ORDER BY rowid DESC');
-  const stale = rows.slice(keep);
+  // 收藏的条目永不清除；其余按新→旧保留到上限
+  const rows = all('SELECT id, favorite FROM genre_generator_history ORDER BY rowid DESC');
+  const favorites = rows.filter((r) => r.favorite);
+  const others = rows.filter((r) => !r.favorite);
+  const stale = others.slice(Math.max(0, keep - favorites.length));
   for (const row of stale) run('DELETE FROM genre_generator_history WHERE id = ?', row.id);
-  return { ok: true, removed: stale.length, kept: Math.min(rows.length, keep) };
+  return { ok: true, removed: stale.length, kept: rows.length - stale.length, favorites: favorites.length };
 }
 
 export function markGenreHistoryUsed(id) {

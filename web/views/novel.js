@@ -486,6 +486,7 @@ function customGenrePanel(kind, custom) {
     <div class="nv-row" style="margin-top:8px">
       <button class="nv-btn nv-btn-a" data-act="${isGen ? 'open-genre-generator' : 'brainstorm-genre'}">${isGen ? '🧪 打开题材生成器' : '💡 开始 AI 头脑风暴'}</button>
       <button class="nv-btn" data-act="genre-history" title="查看题材生成历史，可一键复用或删除">🕘 历史题材（${(S.genreHistory || []).length}）</button>
+      ${(S.genreHistory || []).length ? `<select class="nv-select" data-role="historyQuick" style="max-width:230px" title="收藏置顶；选中即恢复到那次填写状态"><option value="">🕘 历史题材快选…</option>${(S.genreHistory || []).map((it) => `<option value="${esc(it.id)}">${it.favorite ? '★ ' : ''}${esc(it.name)}</option>`).join('')}</select>` : ''}
     </div>
     ${active && custom ? `<div class="nv-card" style="padding:10px;margin-top:8px">
       <div class="nv-card-t">当前自定义题材：${esc(custom.name || '')}</div>
@@ -1358,6 +1359,7 @@ async function showGenreHistory() {
     ${(it.positioning || it.description) ? `<div class="nv-hint" style="margin-top:2px">${esc(String(it.positioning || it.description).slice(0, 100))}</div>` : ''}
     <div class="nv-row" style="margin-top:6px">
       <button class="nv-btn nv-btn-sm nv-btn-p" data-a="apply" data-i="${i}">一键恢复填写状态</button>
+      <button class="nv-btn nv-btn-sm ${it.favorite ? 'nv-btn-a' : ''}" data-a="fav" data-i="${i}">${it.favorite ? '★ 已收藏' : '☆ 收藏置顶'}</button>
       <button class="nv-btn nv-btn-sm nv-btn-d" data-a="del" data-i="${i}">删除</button>
     </div></div>`).join('')
     : '<div class="nv-empty">还没有历史题材。<br>用「题材生成器」或「AI 头脑风暴」生成一次，就会自动归档到这里。</div>';
@@ -1394,8 +1396,24 @@ async function showGenreHistory() {
       S.genreHistory = S.genreHistory.filter((x) => x.id !== it.id);
       m.close();
       showGenreHistory();
+    } else if (btn.dataset.a === 'fav' && it) {
+      await guard(async () => S.ctx.api.post(`/api/novels/ai/genre-history/${it.id}/favorite`, {}), it.favorite ? '已取消收藏' : '已收藏置顶');
+      m.close();
+      S.genreHistoryLoaded = false;
+      await ensureGenreHistory();
+      showGenreHistory();
     }
   });
+}
+
+// 懒加载题材历史（用于快选下拉与计数）
+async function ensureGenreHistory() {
+  if (S.genreHistoryLoaded) return;
+  try {
+    const r = await S.ctx.api.get('/api/novels/ai/genre-history?limit=50');
+    S.genreHistory = r?.items || [];
+    S.genreHistoryLoaded = true;
+  } catch { S.genreHistoryLoaded = true; }
 }
 
 async function openGenreGenerator() {
@@ -1856,6 +1874,23 @@ function showOutlineAiReport(result) {
   bar.querySelector('[data-act="modal-close"]').onclick = () => m.close();
 }
 
+// 统筹完成后的「一致性校对」报告（人物 ID 悬空 / 人物与主线脱节 / 反派未进框架 / 地点未被引用）
+function showConsistencyReport(consistency) {
+  const issues = Array.isArray(consistency?.issues) ? consistency.issues : [];
+  if (!issues.length) return;
+  const body = document.createElement('div');
+  body.innerHTML = `<div class="nv-hint" style="margin-bottom:6px">人物 ${consistency.castCount || 0} 名 · 地点 ${consistency.locationCount || 0} 个 · 发现 ${issues.length} 处需要复核：</div>
+    ${issues.map((it) => `<div class="${it.level === 'warn' ? 'nv-warn' : 'nv-note'}" style="margin-bottom:5px">${esc(it.message)}</div>`).join('')}
+    <div class="nv-hint" style="margin-top:6px">提示：可点对应分节的「AI 生成本节」或章节行的「AI 规划」单独重做；也可用「⚡ 多线程统筹规划」整体重跑。</div>`;
+  const m = S.ctx.modal({ title: '🔎 大纲一致性校对', body, width: 640 });
+  const bar = document.createElement('div');
+  bar.className = 'nv-row';
+  bar.style.marginTop = '10px';
+  bar.innerHTML = '<button class="nv-btn nv-btn-p" data-a="close">知道了</button>';
+  body.appendChild(bar);
+  bar.querySelector('[data-a="close"]').onclick = () => m.close();
+}
+
 // 多线程统筹规划：并发补齐分节 + 并发规划章节，再统一成环与伏笔收口
 async function startOrchestrateOutline() {
   if (S.busy) return;
@@ -2147,7 +2182,10 @@ function watchAiJob(jobId, label) {
     }
     if (!['done', 'error', 'canceled'].includes(job.status)) return;
     stopWatching();
-    if (job.status === 'done') toast(`${label}完成`, 'ok');
+    if (job.status === 'done') {
+      toast(`${label}完成`, 'ok');
+      if (job.result?.consistency?.issues?.length) showConsistencyReport(job.result.consistency);
+    }
     else if (job.status === 'error') toast(`${label}失败：${job.error || '未知错误'}`, 'err');
     else toast(`${label}已取消`, 'info');
     Promise.all([reloadDetail(), loadList()]).catch(() => { /* ignore */ });
@@ -2307,6 +2345,7 @@ async function onClickEvent(e) {
     case 'genre-mode': {
       S.form = collectForm();
       S.genreMode = ['system', 'generator', 'brainstorm'].includes(el.dataset.mode) ? el.dataset.mode : 'system';
+      if (S.genreMode !== 'system') await ensureGenreHistory();
       render();
       return;
     }
@@ -2507,6 +2546,17 @@ function onChangeEvent(e) {
     return;
   }
   if (['mode', 'force', 'cgender'].includes(role)) return;
+  if (role === 'historyQuick') {
+    const id = e.target.value;
+    e.target.value = '';
+    const it = (S.genreHistory || []).find((x) => x.id === id);
+    if (it) {
+      applyHistoryRecord(it);
+      S.ctx.api.post(`/api/novels/ai/genre-history/${it.id}/use`, {}).catch(() => { /* ignore */ });
+      toast(`已恢复「${it.name}」的填写状态`, 'ok');
+    }
+    return;
+  }
   if (role === 'free_mode') {
     S.form = collectForm();
     const on = !!e.target.checked;

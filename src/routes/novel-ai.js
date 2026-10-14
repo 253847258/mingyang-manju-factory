@@ -14,7 +14,7 @@ import { brainstormGenre } from '../novel-brainstorm.js';
 import { GENRE_GENERATOR_OPTIONS, generateCustomGenre } from '../novel-genre-generator.js';
 import {
   ensureGenreHistorySchema, listGenreHistory, saveGenreHistory, deleteGenreHistory,
-  markGenreHistoryUsed, clearGenreHistory,
+  markGenreHistoryUsed, clearGenreHistory, toggleGenreHistoryFavorite,
 } from '../genre-history.js';
 import { listCreativeOptions, planGenreFromTitle, getNovelCreativeOptions, updateNovelCreativeOptions } from '../novel-creative-options.js';
 import { ensureNovelSettingsSchema, getNovelAiSettings, updateNovelAiSettings, listNovelCharacterArchive } from '../novel-settings.js';
@@ -110,6 +110,14 @@ export function registerNovelAiRoutes(app) {
       if (!item) throw new Error('历史题材不存在');
       ctx.json({ ok: true, item });
     } catch (err) { throw badRequest(err.message || '标记历史题材使用失败'); }
+  });
+
+  app.post('/api/novels/ai/genre-history/:id/favorite', async (ctx) => {
+    try {
+      const item = toggleGenreHistoryFavorite(param(ctx, 'id'));
+      if (!item) throw new Error('历史题材不存在');
+      ctx.json({ ok: true, item });
+    } catch (err) { throw badRequest(err.message || '收藏历史题材失败'); }
   });
 
   app.delete('/api/novels/ai/genre-history/:id', async (ctx) => {
@@ -445,6 +453,7 @@ export function registerNovelAiRoutes(app) {
             calls: r.report.calls,
             elapsedMs: r.elapsedMs,
             report: r.report,
+            consistency: r.consistency,
             chapters: Array.isArray(r.sections.chapters) ? r.sections.chapters.length : 0,
             chapterResults: r.chapterResults,
           };

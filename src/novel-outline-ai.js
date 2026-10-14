@@ -777,15 +777,77 @@ export async function orchestrateOutline(novel, sections, {
     const id = TEXT(f?.id, 20) || `FS-${String(i + 1).padStart(2, '0')}`;
     return { ...f, id, payoff_chapter: payoff && payoff > setup ? payoff : (setup ? setup + 1 : 0) };
   });
-  mark('merge', { handoffFilled: enriched.filled, foreshadow: foreshadow.length });
+  const merged = { ...ch.sections, chapters: enriched.chapters, foreshadow };
+  const consistency = auditOutlineConsistency(merged);
+  report.consistency = consistency;
+  mark('merge', { handoffFilled: enriched.filled, foreshadow: foreshadow.length, consistencyIssues: consistency.issues.length });
 
   return {
-    sections: { ...ch.sections, chapters: enriched.chapters, foreshadow },
+    sections: merged,
     report,
+    consistency,
     elapsedMs: elapsedMsSince(started),
     chapterResults: ch.results,
     sectionResults: fill.results,
   };
+}
+
+// 大纲一致性校对（确定性，不调用 LLM）：找出人物 ID 悬空、人物表与主线脱节、
+// 反派未进框架、地点未被引用等问题，供统筹规划后复核。
+export function auditOutlineConsistency(sections = {}) {
+  const cast = (Array.isArray(sections.characters) ? sections.characters : [])
+    .filter((c) => c && (c.id || c.name))
+    .map((c) => ({ id: TEXT(c.id, 20).toUpperCase(), name: TEXT(c.name, 40), role: TEXT(c.role, 20) }));
+  const castIds = new Set(cast.map((c) => c.id).filter(Boolean));
+  const issues = [];
+
+  const scan = [
+    ['一句话故事', sections.logline],
+    ['故事框架', sections.framework],
+    ['故事线', sections.storyline],
+    ['世界观', sections.worldview],
+    ['卷季结构', sections.volumes],
+    ['时间线', sections.timeline],
+    ['伏笔', sections.foreshadow],
+    ['反转', sections.reversals],
+    ['钩子', sections.hooks],
+    ['因果链', sections.logic],
+    ['章节', (Array.isArray(sections.chapters) ? sections.chapters : []).map((c) => ({ s: c?.start_state, e: c?.end_state, m: c?.summary, c: c?.characters }))],
+  ];
+  const unknown = new Map();
+  for (const [label, val] of scan) {
+    const text = typeof val === 'string' ? val : JSON.stringify(val || '');
+    for (const m of text.matchAll(/C(?:X)?-\d{4}/gi)) {
+      const id = m[0].toUpperCase();
+      if (castIds.has(id)) continue;
+      if (!unknown.has(id)) unknown.set(id, new Set());
+      unknown.get(id).add(label);
+    }
+  }
+  for (const [id, where] of unknown) {
+    issues.push({ level: 'warn', type: 'unknownCharacterId', message: `人物 ID ${id} 未在人物表中定义，却出现在：${[...where].join('、')}` });
+  }
+
+  const core = [sections.logline, JSON.stringify(sections.framework || {}), JSON.stringify(sections.storyline || {})].join(' ');
+  for (const c of cast) {
+    if (c.name && !core.includes(c.name)) {
+      issues.push({ level: 'info', type: 'characterUnused', message: `人物 ${c.id || ''} ${c.name} 未出现在「一句话故事 / 故事框架 / 故事线」中` });
+    }
+  }
+  const antagonistText = JSON.stringify(sections.framework?.antagonist_force || '');
+  for (const v of cast.filter((c) => /反派|敌人|对手|幕后/.test(c.role))) {
+    if (v.name && !antagonistText.includes(v.name)) {
+      issues.push({ level: 'warn', type: 'villainNotInFramework', message: `反派「${v.name}」未出现在框架「对立力量」里` });
+    }
+  }
+  const chapterText = JSON.stringify(Array.isArray(sections.chapters) ? sections.chapters : []);
+  const locs = (Array.isArray(sections.locations) ? sections.locations : []).map((l) => TEXT(l.id, 20)).filter(Boolean);
+  const unusedLocs = locs.filter((id) => !core.includes(id) && !chapterText.includes(id));
+  if (unusedLocs.length) {
+    issues.push({ level: 'info', type: 'unusedLocations', message: `地点 ${unusedLocs.join('、')} 未被任何章节或核心分节引用` });
+  }
+
+  return { ok: issues.length === 0, castCount: cast.length, locationCount: locs.length, issues };
 }
 
 export function buildSectionPrompt(novel = {}, sections = {}, key, { instruction = '', ctx = null, refText = '' } = {}) {

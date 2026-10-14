@@ -19,7 +19,10 @@ const { GENRES, genreById } = await import('../src/data/genres.js');
 const { buildGenreSkillPrompt } = await import('../src/genre-frameworks.js');
 const { brainstormGenre, buildBrainstormPrompt } = await import('../src/novel-brainstorm.js');
 const { generateCustomGenre, GENRE_GENERATOR_OPTIONS } = await import('../src/novel-genre-generator.js');
-const { saveGenreHistory, listGenreHistory, deleteGenreHistory, pruneGenreHistory, GENRE_HISTORY_MAX } = await import('../src/genre-history.js');
+const {
+  saveGenreHistory, listGenreHistory, deleteGenreHistory, pruneGenreHistory,
+  GENRE_HISTORY_MAX, toggleGenreHistoryFavorite, clearGenreHistory,
+} = await import('../src/genre-history.js');
 const { buildFrameworkPrompt, commitCharacters } = await import('../src/novel-ai.js');
 const { createApp, createServer } = await import('../src/http.js');
 const { registerNovelAiRoutes } = await import('../src/routes/novel-ai.js');
@@ -232,6 +235,37 @@ try {
     assert.equal(after.length, 3);
     assert.ok(before >= 3);
     return `before=${before} removed=${r.removed} kept=${after.length}`;
+  });
+  await check('收藏置顶：列表收藏优先于新→旧', async () => {
+    clearGenreHistory();
+    const fav = saveGenreHistory(generateCustomGenre({ world: 'modern', protagonist: 'ordinary', conflict: 'heal', keyword: 'fav' }));
+    saveGenreHistory(generateCustomGenre({ world: 'future', protagonist: 'genius', conflict: 'war', keyword: 'newer' }));
+    const toggled = toggleGenreHistoryFavorite(fav.id);
+    assert.equal(toggled.favorite, true);
+    const items = listGenreHistory().items;
+    assert.equal(items[0].id, fav.id);
+    assert.equal(items[0].favorite, true);
+    return `${items[0].name} 置顶`;
+  });
+  await check('pruneGenreHistory 永不删除收藏条目', async () => {
+    clearGenreHistory();
+    const fav = saveGenreHistory(generateCustomGenre({ world: 'modern', protagonist: 'ordinary', conflict: 'heal', keyword: 'keep' }));
+    toggleGenreHistoryFavorite(fav.id);
+    for (let i = 0; i < 5; i += 1) saveGenreHistory(generateCustomGenre({ world: 'future', protagonist: 'genius', conflict: 'war', keyword: `n${i}` }));
+    const r = pruneGenreHistory(2);
+    const items = listGenreHistory({ limit: 200 }).items;
+    assert.equal(items.length, 2);
+    assert.ok(items.some((x) => x.id === fav.id && x.favorite));
+    assert.equal(r.favorites, 1);
+    return `kept=${items.length} favorites=${r.favorites}`;
+  });
+  await check('收藏接口 POST /genre-history/:id/favorite', async () => {
+    const headers = { 'content-type': 'application/json' };
+    const g = generateCustomGenre({ world: 'magic', protagonist: 'creature', conflict: 'heal' });
+    const it = saveGenreHistory(g);
+    const res = await (await fetch(`${base}/api/novels/ai/genre-history/${it.id}/favorite`, { method: 'POST', headers, body: '{}' })).json();
+    assert.equal(res.item.favorite, true);
+    return `★ ${res.item.name}`;
   });
 
   console.log('\n=== 5. 一键写作后台任务 ===');

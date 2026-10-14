@@ -337,6 +337,29 @@ await check('orchestrateOutline 产出统筹报告且章节成环', async () => 
   assert.ok(r.sections.chapters.every((c) => String(c.start_state || '').trim() && String(c.end_state || '').trim()));
   return `steps=${names.join('→')} chapters=${r.sections.chapters.length}`;
 });
+await check('auditOutlineConsistency 抓出悬空人物 ID / 反派未进框架 / 未引用地点', async () => {
+  const r = OAI.auditOutlineConsistency({
+    characters: [{ id: 'C-0001', name: '沈砚', role: '主角' }, { id: 'C-0002', name: '陆行舟', role: '反派' }],
+    logline: '沈砚追查真相',
+    framework: { antagonist_force: '幕后集团' },
+    storyline: {},
+    locations: [{ id: 'L-0001' }, { id: 'L-0002' }],
+    chapters: [{ start_state: 'C-0009 出现', summary: 'L-0001' }],
+  });
+  assert.equal(r.ok, false);
+  const types = r.issues.map((x) => x.type);
+  for (const t of ['unknownCharacterId', 'characterUnused', 'villainNotInFramework', 'unusedLocations']) {
+    assert.ok(types.includes(t), `缺少 ${t}（实际：${types.join(',')}）`);
+  }
+  return types.join(',');
+});
+await check('orchestrateOutline 返回一致性校对结果', async () => {
+  const novel = OAI.novelOf('N-OAI');
+  const r = await OAI.orchestrateOutline(novel, { chapters: [] }, { concurrency: 3, sectionsConcurrency: 4 });
+  assert.ok(r.consistency && typeof r.consistency.ok === 'boolean');
+  assert.equal(r.report.consistency, r.consistency);
+  return `ok=${r.consistency.ok} issues=${r.consistency.issues.length}`;
+});
 await check('POST /outline/ai/orchestrate-job 后台完成并落库', async () => {
   const started = await (await fetch(`${base}/api/novels/N-OAI/outline/ai/orchestrate-job`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
