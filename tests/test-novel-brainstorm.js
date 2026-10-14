@@ -127,6 +127,47 @@ try {
     assert.equal(res.status, 400);
     return '400';
   });
+
+  console.log('\n=== 5. 一键写作后台任务 ===');
+  await check('POST /chapters/ai-write-job 写作未写章节并落库', async () => {
+    const now = nowISO();
+    run(`INSERT INTO novels(id, title, genre, cast_size, target_words, chapter_words, pov, actor_ids, custom_actors, seasons, status, meta, created_at, updated_at)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    'N-PIPE', '一键流程测试', targetGenre.id, 20, 9000, 3000, 'third-limited', '[]', '[]', 1, 'draft', '{}', now, now);
+    const chapters = [{ idx: 1, title: '第1章 开场' }, { idx: 2, title: '第2章 升级' }, { idx: 3, title: '第3章 反转' }];
+    run(`INSERT INTO novel_outlines(id, novel_id, version, status, payload, raw, model, tokens, elapsed_ms, created_at, updated_at)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+    'O-PIPE', 'N-PIPE', 1, 'ready', JSON.stringify({ chapters: chapters.map((c) => ({ ...c, summary: `${c.title}的剧情走向`, start_state: '开局', end_state: '收束', cliffhanger: '钩子' })) }), '', 'mock', 0, 0, now, now);
+    for (const c of chapters) {
+      run(`INSERT INTO novel_chapters(id, novel_id, outline_id, idx, title, summary, content, words, status, created_at, updated_at)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+      `NC-PIPE-${c.idx}`, 'N-PIPE', 'O-PIPE', c.idx, c.title, c.title, '', 0, 'outline', now, now);
+    }
+
+    const started = await (await fetch(`${base}/api/novels/N-PIPE/chapters/ai-write-job`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'all' }),
+    })).json();
+    assert.match(started.jobId, /^JOB-/);
+    assert.equal(started.total, 3);
+    const { getJob } = await import('../src/jobs.js');
+    let job = null;
+    for (let i = 0; i < 120; i += 1) {
+      job = getJob(started.jobId);
+      if (['done', 'error', 'canceled'].includes(job.status)) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.equal(job.status, 'done', job.error || '');
+    const done = get("SELECT COUNT(*) AS c FROM novel_chapters WHERE novel_id = 'N-PIPE' AND status = 'done' AND words > 0").c;
+    assert.equal(done, 3);
+    return `${started.jobId} 完成 ${done} 章`;
+  });
+  await check('mode=all 二次执行时没有可写章节则报错', async () => {
+    const res = await fetch(`${base}/api/novels/N-PIPE/chapters/ai-write-job`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'all' }),
+    });
+    assert.equal(res.status, 400);
+    return '400';
+  });
 } finally {
   if (server.closeAllConnections) server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
