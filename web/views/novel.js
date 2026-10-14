@@ -1891,7 +1891,8 @@ function showConsistencyReport(consistency) {
   const body = document.createElement('div');
   body.innerHTML = `<div class="nv-hint" style="margin-bottom:6px">人物 ${consistency.castCount || 0} 名 · 地点 ${consistency.locationCount || 0} 个 · 发现 ${issues.length} 处需要复核：</div>
     ${issues.map((it) => `<div class="${it.level === 'warn' ? 'nv-warn' : 'nv-note'}" style="margin-bottom:5px">${esc(it.message)}</div>`).join('')}
-    <div class="nv-hint" style="margin-top:6px">提示：可点对应分节的「AI 生成本节」或章节行的「AI 规划」单独重做；也可用「⚡ 多线程统筹规划」整体重跑。</div>`;
+    <div class="nv-hint" style="margin-top:6px">提示：可点对应分节的「AI 生成本节」或章节行的「AI 规划」单独重做；也可用「⚡ 多线程统筹规划」整体重跑。</div>
+    ${issues.some((x) => x.type === 'possibleAlias') ? '<div class="nv-hint" style="margin-top:4px">注：标为「疑似简称」的条目只提示、不自动替换（中文简称可能是普通词，硬改有风险）。</div>' : ''}`;
   const m = S.ctx.modal({ title: '🔎 大纲一致性校对', body, width: 640 });
   const bar = document.createElement('div');
   bar.className = 'nv-row';

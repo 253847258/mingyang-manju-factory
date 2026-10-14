@@ -847,6 +847,31 @@ export function auditOutlineConsistency(sections = {}) {
     issues.push({ level: 'info', type: 'unusedLocations', message: `地点 ${unusedLocs.join('、')} 未被任何章节或核心分节引用` });
   }
 
+  // 疑似简称/缩写：某分节里出现了角色名的一部分，但该分节没有出现全名。
+  // 只提示、不自动替换（中文简称可能是地名/普通词，硬改有风险）。
+  const coreSections = [
+    ['一句话故事', typeof sections.logline === 'string' ? sections.logline : ''],
+    ['故事框架', JSON.stringify(sections.framework || {})],
+    ['故事线', JSON.stringify(sections.storyline || {})],
+    ['世界观', JSON.stringify(sections.worldview || {})],
+  ];
+  let aliasHints = 0;
+  outer: for (const c of cast) {
+    const name = c.name;
+    if (name.length < 3) continue;
+    const candidates = [...new Set([name.slice(1), name.slice(0, 2), name.slice(-2), name.slice(1, 3)])]
+      .filter((t) => t && t.length >= 2 && t.length < name.length);
+    if (!candidates.length) continue;
+    for (const [label, text] of coreSections) {
+      if (!text || text.includes(name)) continue;
+      const hit = candidates.find((t) => text.includes(t));
+      if (!hit) continue;
+      issues.push({ level: 'info', type: 'possibleAlias', message: `「${label}」里出现「${hit}」，疑似指 ${c.id} ${name}（只提示，不自动替换）` });
+      aliasHints += 1;
+      if (aliasHints >= 8) break outer;
+    }
+  }
+
   return { ok: issues.length === 0, castCount: cast.length, locationCount: locs.length, issues };
 }
 

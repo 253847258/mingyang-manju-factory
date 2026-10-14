@@ -415,6 +415,23 @@ await check('applyCharacterIdMapping 白名单校验 + 确定性替换', async (
   assert.ok(r.sections.chapters[0].start_state.includes('C-0001'));
   return `hits=${r.hits}`;
 });
+await check('auditOutlineConsistency 提示「疑似简称」但只提示不替换', async () => {
+  const r = OAI.auditOutlineConsistency({
+    characters: [{ id: 'C-0002', name: '陆行舟', role: '反派' }],
+    logline: '行舟暗中布局',
+    framework: { antagonist_force: '陆行舟' },
+    storyline: {},
+    locations: [],
+  });
+  const aliases = r.issues.filter((x) => x.type === 'possibleAlias');
+  assert.equal(aliases.length, 1, JSON.stringify(r.issues));
+  assert.match(aliases[0].message, /行舟/);
+  assert.match(aliases[0].message, /只提示/);
+  // 名字够短（2 字）时不产生噪音
+  const r2 = OAI.auditOutlineConsistency({ characters: [{ id: 'C-0001', name: '沈砚', role: '主角' }], logline: '砚台', framework: {}, storyline: {}, locations: [] });
+  assert.equal(r2.issues.filter((x) => x.type === 'possibleAlias').length, 0);
+  return aliases[0].message;
+});
 await check('normalizeDanglingIds 在 mock 下跳过并说明原因', async () => {
   const r = await OAI.normalizeDanglingIds({ title: 'x' }, { characters: [{ id: 'C-0001', name: '沈砚' }], chapters: [{ start_state: 'C-9999' }] });
   assert.equal(r.mocked, true);
