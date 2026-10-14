@@ -247,6 +247,49 @@ await check('POST /outline/ai/chapters save=true 只规划指定章并新增版�
   return `v${json.saved.version}, range=${json.from}-${json.to}`;
 });
 
+console.log('\n=== 5. 章首/章末补全（单次整份大纲的短板） ===');
+await check('enrichChapterHandoff 用相邻摘要推导章首/章末并成环、不覆盖已有内容', async () => {
+  const sections = {
+    chapters: [
+      { idx: 1, title: '第1章', summary: '主角接到匿名线索' },
+      { idx: 2, title: '第2章', summary: '主角追查旧案' },
+      { idx: 3, title: '第3章', summary: '真相逼近但代价沉重', cliffhanger: '新危机出现' },
+    ],
+  };
+  const r = OAI.enrichChapterHandoff({}, sections);
+  assert.equal(r.filled, 6);
+  assert.match(r.chapters[0].start_state, /开篇承接/);
+  const prevEnd = r.chapters[0].end_state.replace('推进到下一章：', '');
+  assert.match(r.chapters[1].start_state, /承接上一章/);
+  assert.ok(r.chapters[1].start_state.includes(prevEnd));
+  assert.match(r.chapters[2].end_state, /本章收束/);
+  assert.ok(r.chapters[1].handoff_in && r.chapters[1].handoff_out);
+  const again = OAI.enrichChapterHandoff({}, { chapters: r.chapters });
+  assert.equal(again.filled, 0);
+  return `filled=${r.filled}, 二次=${again.filled}`;
+});
+await check('POST /outline/ai/enrich-handoff 补全并落库为新版本', async () => {
+  const cur = OAI.loadSections('N-OAI');
+  const stripped = (cur.chapters || []).map((c, i) => ({
+    idx: i + 1, title: c.title || `第${i + 1}章`, summary: c.summary || `第${i + 1}章剧情`, _placeholder: false,
+  }));
+  const saved = await fetch(`${base}/api/novels/N-OAI/outline/ai/save`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sections: { ...cur, chapters: stripped }, source: 'test-strip-handoff' }),
+  });
+  assert.equal(saved.status, 200);
+  const res = await fetch(`${base}/api/novels/N-OAI/outline/ai/enrich-handoff`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ save: true }),
+  });
+  const json = await res.json();
+  assert.equal(res.status, 200);
+  assert.ok(json.filled > 0);
+  assert.ok(json.saved && json.saved.version > 0);
+  const after = OAI.loadSections('N-OAI');
+  assert.ok(after.chapters.every((c) => String(c.start_state || '').trim() && String(c.end_state || '').trim()));
+  return `filled=${json.filled} v${json.saved.version}`;
+});
+
 if (server.closeAllConnections) server.closeAllConnections();
 await new Promise((resolve) => server.close(resolve));
 console.log(`\n=== 结果：${pass} 通过 / ${fail} 失败 ===`);

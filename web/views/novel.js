@@ -1639,8 +1639,10 @@ async function startOutlineGen() {
   const planned = plannedChapterCount();
   // 章节较多时，整份大纲一次性生成容易因输出过长被截断（实测 10 章 + 完整框架会 JSON 截断报错）。
   // 直接用稳健模式按批逐章规划，避免先浪费一次几十秒的失败调用。
-  if (planned > 12) {
-    const useRobust = await S.ctx.confirm(`本项目约 ${planned} 章：整份大纲一次性生成容易因输出过长被截断。建议直接用「稳健模式」（每批 20 章逐章规划 + 逐节补齐，约 ${Math.ceil(planned / 20) + 1} 次调用）。是否使用稳健模式？`);
+  const fwLen = String(S.detail?.novel?.framework_intro || S.form?.framework_intro || '').length;
+  const singleShotCap = fwLen > 2500 ? 6 : 12;
+  if (planned > singleShotCap) {
+    const useRobust = await S.ctx.confirm(`本项目约 ${planned} 章、故事框架 ${fwLen} 字：整份大纲一次性生成容易因输出过长被截断（实测已发生）。建议直接用「稳健模式」（每批 20 章逐章规划 + 逐节补齐，约 ${Math.ceil(planned / 20) + 1} 次调用）。是否使用稳健模式？`);
     if (useRobust) {
       const job = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/robust-job`, {
         instruction: '按整条故事线规划每章章首、章末和上下文衔接，确保前后逻辑一致。',
@@ -1673,7 +1675,10 @@ async function startOutlineGen() {
     return;
   }
   const plannedCount = (r.outline?.sections?.chapters || []).length || r.planned || r.results?.length || 0;
-  toast(`大纲已生成：规划 ${plannedCount} 章，${r.summary?.calls || 0} 次模型调用${r.summary?.warnings?.length ? `（${r.summary.warnings.length} 条提示）` : ''}`, 'ok');
+  // 单次整份大纲只带短摘要、没有章首/章末：这里确定性补全，保证头尾衔接（零额外调用）
+  const enrich = await S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/enrich-handoff`, { save: true }).catch(() => null);
+  const enrichNote = enrich?.filled ? `；已补全 ${enrich.filled} 处章首/章末` : '';
+  toast(`大纲已生成：规划 ${plannedCount} 章，${r.summary?.calls || 0} 次模型调用${r.summary?.warnings?.length ? `（${r.summary.warnings.length} 条提示）` : ''}${enrichNote}`, 'ok');
   S.tab = 'outline';
   await reloadDetail();
   await loadList();
@@ -1760,6 +1765,8 @@ function openOutlineAiPlanModal(snap) {
       let chapterPlan = null;
       if (snap.chaptersEmpty) {
         chapter = await S.ctx.api.post(`/api/novels/${S.currentId}/outline`, { saveVersion: true });
+        // 单次整份大纲不带章首/章末：确定性补全，保证头尾衔接
+        await S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/enrich-handoff`, { save: true }).catch(() => null);
       } else if (snap.chaptersIncomplete) {
         chapterPlan = await S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/chapters`, {
           from: 1,

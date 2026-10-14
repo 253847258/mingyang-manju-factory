@@ -4,6 +4,7 @@ import { badRequest } from '../http.js';
 import { generateFrameworkProposal, commitCharacters } from '../novel-ai.js';
 import {
   outlineAiStatus, loadSections, novelOf, fillSections, generateSection, planChapters, saveOutlineVersion,
+  enrichChapterHandoff,
 } from '../novel-outline-ai.js';
 import { writeLongChapter } from '../novel-writing.js';
 import { buildNovelAssets } from '../novel-assets.js';
@@ -361,6 +362,21 @@ export function registerNovelAiRoutes(app) {
         saved,
       });
     } catch (err) { throw badRequest(err.message || 'AI 规划指定章节失败'); }
+  });
+
+  // 单次整份大纲只产出短摘要；这里为零成本的确定性补全「章首/章末」，让头尾能衔接。
+  app.post('/api/novels/:id/outline/ai/enrich-handoff', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      const novelId = param(ctx, 'id');
+      const novel = novelOf(novelId);
+      const sections = loadSections(novelId);
+      const r = enrichChapterHandoff(novel, sections);
+      const saved = (body.save !== false && r.filled > 0)
+        ? saveOutlineVersion(novelId, { ...sections, chapters: r.chapters }, { source: 'ai-enrich-handoff', note: '补全章首/章末' })
+        : null;
+      ctx.json({ ok: true, filled: r.filled, total: r.total, saved });
+    } catch (err) { throw badRequest(err.message || '补全章首/章末失败'); }
   });
 
   app.post('/api/novels/:id/outline/ai/save', async (ctx) => {

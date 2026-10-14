@@ -332,6 +332,39 @@ export function chapterPlanComplete(chapter) {
   );
 }
 
+// 为章节骨架补全「章首状态 / 章末状态 / 交接」。
+// 单次整份大纲（/outline）只产出短摘要、不带 start_state/end_state；
+// 这里用相邻章节摘要做确定性推导（不调用 LLM、零成本），保证头尾能衔接，
+// 后续再由逐章 AI 规划（/outline/ai/chapters）替换为 2500-3500 字的详细大纲。
+export function enrichChapterHandoff(novel, sections = {}) {
+  const list = Array.isArray(sections.chapters) ? sections.chapters : [];
+  if (!list.length) return { chapters: list, filled: 0, total: 0 };
+  const chapters = list.map((c) => ({ ...(c && typeof c === 'object' ? c : {}) }));
+  let filled = 0;
+  for (let i = 0; i < chapters.length; i += 1) {
+    const c = chapters[i];
+    const prev = chapters[i - 1];
+    const next = chapters[i + 1];
+    if (!TEXT(c.start_state, 1000)) {
+      const src = prev ? (prev.end_state || prev.cliffhanger || prev.hook || prev.summary) : '';
+      c.start_state = src
+        ? `承接上一章：${TEXT(src, 200)}`
+        : `开篇承接：${TEXT(c.summary || c.title, 180) || '从主角当前处境进入本章'}`;
+      filled += 1;
+    }
+    if (!TEXT(c.end_state, 1000)) {
+      const src = next ? (next.start_state || next.summary || next.title) : '';
+      c.end_state = src
+        ? `推进到下一章：${TEXT(src, 200)}`
+        : `本章收束：${TEXT(c.cliffhanger || c.hook || c.summary, 180) || '把主线推进到下一阶段'}`;
+      filled += 1;
+    }
+    if (!TEXT(c.handoff_in, 400)) c.handoff_in = TEXT(c.start_state, 400);
+    if (!TEXT(c.handoff_out, 400)) c.handoff_out = TEXT(c.end_state, 400);
+  }
+  return { chapters, filled, total: chapters.length };
+}
+
 export function chapterPlanStats(sections = {}, novel = {}) {
   const expected = chapterBudget(novel, sections);
   const byIdx = new Map(
