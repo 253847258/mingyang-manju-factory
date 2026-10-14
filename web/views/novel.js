@@ -1896,9 +1896,22 @@ function showConsistencyReport(consistency) {
   const bar = document.createElement('div');
   bar.className = 'nv-row';
   bar.style.marginTop = '10px';
-  bar.innerHTML = '<button class="nv-btn nv-btn-a" data-a="fix">一键修复（补录角色 + 别名统一）</button><button class="nv-btn nv-btn-p" data-a="close">知道了</button>';
+  const hasUnknown = issues.some((x) => x.type === 'unknownCharacterId');
+  bar.innerHTML = `<button class="nv-btn nv-btn-a" data-a="fix">一键修复（补录角色 + 别名统一）</button>${hasUnknown ? '<button class="nv-btn" data-a="norm">🤖 AI 归一悬空 ID（1 次调用）</button>' : ''}<button class="nv-btn nv-btn-p" data-a="close">知道了</button>`;
   body.appendChild(bar);
   bar.querySelector('[data-a="close"]').onclick = () => m.close();
+  bar.querySelector('[data-a="norm"]')?.addEventListener('click', async () => {
+    m.close();
+    if (!(await S.ctx.confirm('将调用 1 次 LLM，把查无此人的角色编号映射到人物表里的角色（无法判断的保持原样）。继续？'))) return;
+    const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/consistency-normalize`, { save: true }));
+    if (!r) return;
+    await Promise.all([reloadDetail(), loadList()]).catch(() => { /* ignore */ });
+    if (r.mocked) { toast(r.reason || 'mock 模式已跳过 AI 归一', 'info'); return; }
+    if (r.error) { toast(`AI 归一失败：${r.error}`, 'err'); return; }
+    if (r.changes?.length) toast(`已归一：${r.changes.join('；')}`, 'ok');
+    else toast(r.reason || 'AI 未给出可用的归一映射', 'info');
+    if (r.after?.issues?.length) showConsistencyReport(r.after);
+  });
   bar.querySelector('[data-a="fix"]').onclick = async () => {
     m.close();
     const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/consistency-repair`, { save: true }));

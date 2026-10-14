@@ -949,6 +949,109 @@ export function repairOutlineConsistency(novel, sections = {}) {
   };
 }
 
+function snippetsForId(sections = {}, id = '') {
+  const out = [];
+  let re;
+  try { re = new RegExp(id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'); } catch { return out; }
+  for (const [key, val] of Object.entries(sections)) {
+    if (key === 'meta') continue;
+    const text = typeof val === 'string' ? val : JSON.stringify(val || {});
+    let m;
+    let used = 0;
+    while ((m = re.exec(text)) && used < 2) {
+      out.push(`[${key}] …${text.slice(Math.max(0, m.index - 50), m.index + 60)}…`);
+      used += 1;
+    }
+    if (out.length >= 4) break;
+  }
+  return out.slice(0, 4);
+}
+
+// 悬空人物 ID 的「AI 归一」：把查无此人的 C-/CX- 编号映射到人物表里语义最接近的角色。
+// 只生成映射并做确定性替换，返回值必须通过白名单校验（目标必须是人物表里已有的 ID）。
+// 应用「悬空编号 → 人物表编号」映射（白名单校验 + 确定性替换），供 AI 归一与测试复用。
+export function applyCharacterIdMapping(sections = {}, mapping = {}, cast = []) {
+  const castIds = new Set((Array.isArray(cast) ? cast : []).map((c) => TEXT(c?.id, 20).toUpperCase()).filter(Boolean));
+  const valid = new Map();
+  for (const [k, v] of Object.entries(mapping || {})) {
+    const from = TEXT(k, 20).toUpperCase();
+    const to = TEXT(v, 20).toUpperCase();
+    if (!from || !to || from === to) continue;
+    if (castIds.size && !castIds.has(to)) continue;
+    valid.set(from, to);
+  }
+  if (!valid.size) return { sections, hits: 0, mapping: {} };
+  const { value, hits } = replaceAliasesDeep(sections, valid);
+  return { sections: value, hits, mapping: Object.fromEntries(valid) };
+}
+
+export async function normalizeDanglingIds(novel, sections = {}) {
+  const audit = auditOutlineConsistency(sections);
+  const unknown = audit.issues
+    .filter((i) => i.type === 'unknownCharacterId')
+    .map((i) => (String(i.message).match(/C(?:X)?-\d{4}/i) || [''])[0].toUpperCase())
+    .filter(Boolean);
+  if (!unknown.length) return { sections, mapping: {}, changes: [], mocked: false, reason: '没有悬空人物 ID' };
+
+  const status = llmStatus();
+  if (status?.provider === 'mock') {
+    return { sections, mapping: {}, changes: [], mocked: true, reason: '当前 LLM 为 mock，已跳过 AI 归一' };
+  }
+
+  const cast = (Array.isArray(sections.characters) ? sections.characters : []).filter((c) => c?.id);
+  const castIds = new Set(cast.map((c) => TEXT(c.id, 20).toUpperCase()));
+  const castList = cast.map((c) => `${TEXT(c.id, 20)} = ${TEXT(c.name, 40)}（${TEXT(c.role, 20) || '配角'}）`).join('\n') || '（人物表为空）';
+  const unknownList = unknown.map((id) => `${id}\n  出现位置：${snippetsForId(sections, id).join(' ｜ ') || '（未找到上下文）'}`).join('\n');
+
+  const prompt = [
+    `小说：${TEXT(novel?.title, 60)}　题材：${TEXT(novel?.genre, 40)}`,
+    '',
+    '【人物表（唯一合法的目标编号）】',
+    castList,
+    '',
+    '【悬空人物编号（需要归一到上面的人物表）】',
+    unknownList,
+    '',
+    '【任务】判断每个悬空编号在剧情上下文里最可能对应人物表中的哪个角色。',
+    '输出 JSON：{"mapping":{"C-9999":"C-0002"},"reason":{"C-9999":"中文理由"}}',
+    '要求：1) key 必须是上面的悬空编号；2) value 必须是人物表里的编号；3) 无法判断的编号直接省略；4) 不要编造新编号；5) 只输出 JSON。',
+  ].join('\n');
+
+  let out;
+  try {
+    out = await chatJSON({ system: AI_SYSTEM, prompt, temperature: 0.2, maxTokens: 1500 });
+  } catch (err) {
+    return { sections, mapping: {}, changes: [], mocked: false, error: err.message };
+  }
+  const rawMapping = out?.data?.mapping;
+  const valid = new Map();
+  if (rawMapping && typeof rawMapping === 'object') {
+    for (const [k, v] of Object.entries(rawMapping)) {
+      const from = TEXT(k, 20).toUpperCase();
+      const to = TEXT(v, 20).toUpperCase();
+      if (!unknown.includes(from) || from === to) continue;
+      if (!castIds.has(to)) continue;
+      valid.set(from, to);
+    }
+  }
+  const applied = applyCharacterIdMapping(sections, Object.fromEntries(valid), cast);
+  if (!valid.size || !applied.hits) {
+    return { sections, mapping: {}, changes: [], mocked: false, reason: 'AI 未给出可用的归一映射' };
+  }
+  const changes = [...valid.entries()].map(([from, to]) => {
+    const target = cast.find((c) => TEXT(c.id, 20).toUpperCase() === to);
+    return `悬空 ${from} → ${to}${target?.name ? ` ${target.name}` : ''}`;
+  });
+  return {
+    sections: applied.sections,
+    mapping: applied.mapping,
+    changes,
+    hits: applied.hits,
+    mocked: false,
+    model: out?.model || '',
+  };
+}
+
 export function buildSectionPrompt(novel = {}, sections = {}, key, { instruction = '', ctx = null, refText = '' } = {}) {
   const spec = SPEC_BY_KEY.get(key);
   if (!spec) throw new Error(`未知大纲分节：${key}`);

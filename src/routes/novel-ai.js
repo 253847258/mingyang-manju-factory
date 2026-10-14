@@ -6,6 +6,7 @@ import {
   outlineAiStatus, loadSections, novelOf, fillSections, generateSection, planChapters, saveOutlineVersion,
   enrichChapterHandoff, orchestrateOutline,
   repairOutlineConsistency, auditOutlineConsistency,
+  normalizeDanglingIds,
 } from '../novel-outline-ai.js';
 import { writeLongChapter } from '../novel-writing.js';
 import { buildNovelAssets } from '../novel-assets.js';
@@ -486,6 +487,25 @@ export function registerNovelAiRoutes(app) {
         : null;
       ctx.json({ ok: true, changes: r.changes, fixed: r.fixed, before: r.before, after: r.after, saved });
     } catch (err) { throw badRequest(err.message || '大纲一致性修复失败'); }
+  });
+
+  // 悬空人物 ID 的 AI 归一（1 次 LLM 调用）：把查无此人的编号映射到人物表里的角色
+  app.post('/api/novels/:id/outline/ai/consistency-normalize', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      const novelId = param(ctx, 'id');
+      const novel = novelOf(novelId);
+      const sections = loadSections(novelId);
+      const r = await normalizeDanglingIds(novel, sections);
+      const saved = (body.save !== false && r.changes.length > 0)
+        ? saveOutlineVersion(novelId, r.sections, { source: 'ai-consistency-normalize', note: r.changes.join('；') })
+        : null;
+      ctx.json({
+        ok: true, mocked: !!r.mocked, reason: r.reason || '', error: r.error || '',
+        mapping: r.mapping || {}, changes: r.changes || [], saved,
+        after: auditOutlineConsistency(r.sections),
+      });
+    } catch (err) { throw badRequest(err.message || '悬空人物 ID AI 归一失败'); }
   });
 
   // 单次整份大纲只产出短摘要；这里为零成本的确定性补全「章首/章末」，让头尾能衔接。

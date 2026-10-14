@@ -403,6 +403,37 @@ await check('POST /outline/ai/consistency-repair 修复并落库为新版本', a
   assert.ok(String(after.storyline.opening_logic).includes('陆沉'));
   return `v${json.saved.version} changes=${json.changes.length}`;
 });
+await check('applyCharacterIdMapping 白名单校验 + 确定性替换', async () => {
+  const r = OAI.applyCharacterIdMapping(
+    { chapters: [{ start_state: 'C-9999 出现' }], framework: { x: 'C-8888 与 C-0001' } },
+    { 'C-9999': 'C-0001', 'C-8888': 'C-0002' },
+    [{ id: 'C-0001', name: '沈砚' }],
+  );
+  assert.equal(r.hits, 1);
+  assert.equal(r.mapping['C-9999'], 'C-0001');
+  assert.equal(r.mapping['C-8888'], undefined, '目标不在人物表内应被拒绝');
+  assert.ok(r.sections.chapters[0].start_state.includes('C-0001'));
+  return `hits=${r.hits}`;
+});
+await check('normalizeDanglingIds 在 mock 下跳过并说明原因', async () => {
+  const r = await OAI.normalizeDanglingIds({ title: 'x' }, { characters: [{ id: 'C-0001', name: '沈砚' }], chapters: [{ start_state: 'C-9999' }] });
+  assert.equal(r.mocked, true);
+  assert.equal(r.changes.length, 0);
+  assert.match(r.reason, /mock/);
+  return r.reason;
+});
+await check('POST /outline/ai/consistency-normalize 在 mock 下不写库并说明', async () => {
+  const res = await fetch(`${base}/api/novels/N-REP/outline/ai/consistency-normalize`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ save: true }),
+  });
+  const json = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(json.ok, true);
+  assert.equal(json.mocked, true);
+  assert.equal(json.saved, null);
+  assert.equal(json.changes.length, 0);
+  return json.reason;
+});
 await check('POST /outline/ai/orchestrate-job 后台完成并落库', async () => {
   const started = await (await fetch(`${base}/api/novels/N-OAI/outline/ai/orchestrate-job`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
