@@ -19,7 +19,7 @@ const { GENRES, genreById } = await import('../src/data/genres.js');
 const { buildGenreSkillPrompt } = await import('../src/genre-frameworks.js');
 const { brainstormGenre, buildBrainstormPrompt } = await import('../src/novel-brainstorm.js');
 const { generateCustomGenre, GENRE_GENERATOR_OPTIONS } = await import('../src/novel-genre-generator.js');
-const { saveGenreHistory, listGenreHistory, deleteGenreHistory } = await import('../src/genre-history.js');
+const { saveGenreHistory, listGenreHistory, deleteGenreHistory, pruneGenreHistory, GENRE_HISTORY_MAX } = await import('../src/genre-history.js');
 const { buildFrameworkPrompt, commitCharacters } = await import('../src/novel-ai.js');
 const { createApp, createServer } = await import('../src/http.js');
 const { registerNovelAiRoutes } = await import('../src/routes/novel-ai.js');
@@ -207,6 +207,31 @@ try {
     const del = await (await fetch(`${base}/api/novels/ai/genre-history/${save.item.id}`, { method: 'DELETE' })).json();
     assert.equal(del.removed, 1);
     return `${list.items.length} 条`;
+  });
+  await check('历史记录保存完整填写状态（标题/视角/规模/季数/字数）', async () => {
+    const g = generateCustomGenre({ world: 'campus', protagonist: 'female', conflict: 'romance' });
+    const it = saveGenreHistory({
+      ...g, title: '雨停之后', titleDescription: '校园悬疑', pov: 'first',
+      castSize: 18, seasons: 2, targetWords: 200000,
+    });
+    const back = listGenreHistory().items.find((x) => x.id === it.id);
+    assert.equal(back.title, '雨停之后');
+    assert.equal(back.titleDescription, '校园悬疑');
+    assert.equal(back.pov, 'first');
+    assert.equal(back.castSize, 18);
+    assert.equal(back.seasons, 2);
+    assert.equal(back.targetWords, 200000);
+    return `${back.title} / ${back.pov} / cast ${back.castSize}`;
+  });
+  await check(`pruneGenreHistory 只保留最近 ${GENRE_HISTORY_MAX} 条（按 rowid）`, async () => {
+    for (let i = 0; i < 6; i += 1) saveGenreHistory(generateCustomGenre({ world: 'modern', protagonist: 'ordinary', conflict: 'heal', keyword: `k${i}` }));
+    const before = listGenreHistory({ limit: 200 }).items.length;
+    const r = pruneGenreHistory(3);
+    const after = listGenreHistory({ limit: 200 }).items;
+    assert.equal(r.kept, 3);
+    assert.equal(after.length, 3);
+    assert.ok(before >= 3);
+    return `before=${before} removed=${r.removed} kept=${after.length}`;
   });
 
   console.log('\n=== 5. 一键写作后台任务 ===');

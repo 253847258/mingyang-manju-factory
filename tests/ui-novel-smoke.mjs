@@ -107,6 +107,14 @@ try {
   await page.locator('[data-a="ok"]').click();
   await page.waitForTimeout(300);
   ok('题材生成器写入自定义题材与框架', (await page.locator('[data-role="framework_intro"]').inputValue()).includes('模块 7'));
+  // 生成会自动归档到历史，历史里可「一键恢复填写状态」
+  await page.locator('[data-act="genre-history"]').click();
+  await page.locator('.overlay .modal').first().waitFor({ timeout: 8000 });
+  await page.waitForTimeout(200);
+  ok('题材生成自动归档到历史', await page.locator('[data-a="apply"]').count() >= 1);
+  await page.locator('[data-a="apply"]').first().click();
+  await page.waitForTimeout(300);
+  ok('历史一键恢复填写状态', (await page.locator('[data-role="framework_intro"]').inputValue()).includes('模块 7'));
 
   // 模式三：AI 头脑风暴
   await page.locator('[data-act="genre-mode"][data-mode="brainstorm"]').click();

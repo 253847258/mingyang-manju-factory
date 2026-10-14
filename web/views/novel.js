@@ -1256,6 +1256,32 @@ function applyCustomGenre(genre, mode) {
   render();
 }
 
+// 从历史记录恢复「那次生成时」的完整填写状态
+function applyHistoryRecord(it) {
+  if (!it) return;
+  applyCustomGenre({
+    genreId: it.genreId, name: it.name, category: it.category, tone: it.tone, keywords: it.keywords,
+    positioning: it.positioning, hook: it.hook, description: it.description,
+    frameworkIntro: it.frameworkIntro, skillPrompt: it.skillPrompt, options: it.options,
+  }, it.source === 'brainstorm' ? 'brainstorm' : 'generator');
+  S.form = collectForm();
+  if (it.title) S.form.title = it.title;
+  if (it.titleDescription) S.form.title_description = it.titleDescription;
+  if (it.pov) {
+    const pov = S.povs.find((p) => p.id === it.pov || p.name === it.pov || String(it.pov).includes(p.name) || p.name.includes(String(it.pov)));
+    S.form.pov = pov ? pov.id : it.pov;
+  }
+  if (it.castSize) {
+    S.form.cast_size = Math.min(limits().castSize.max, Math.max(1, Number(it.castSize)));
+    S.form.free_max = S.form.cast_size;
+  }
+  if (it.seasons) S.form.seasons = Math.min(99, Math.max(1, Number(it.seasons)));
+  if (it.targetWords) {
+    S.form.target_words = Math.min(limits().targetWords.max, Math.max(limits().targetWords.min, Number(it.targetWords)));
+  }
+  render();
+}
+
 function showGeneratedGenrePreview(r) {
   const wrap = document.createElement('div');
   wrap.innerHTML = `
@@ -1285,6 +1311,8 @@ function showGeneratedGenrePreview(r) {
 // 生成成功后自动归档到「题材生成历史」（失败不阻断主流程）
 async function saveGenreToHistory(genre, source) {
   try {
+    const f = S.form || {};
+    const intOrNull = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.round(n) : null; };
     const r = await S.ctx.api.post('/api/novels/ai/genre-history', {
       source: source || 'generator',
       genre: {
@@ -1299,6 +1327,13 @@ async function saveGenreToHistory(genre, source) {
         frameworkIntro: genre.frameworkIntro || '',
         skillPrompt: genre.skillPrompt || '',
         options: genre.options || null,
+        // 记录当时的填写状态，便于「一键恢复」
+        title: genre.title || f.title || '',
+        titleDescription: genre.titleDescription || f.title_description || '',
+        pov: genre.pov || f.pov || '',
+        castSize: intOrNull(genre.castSize) || intOrNull(f.cast_size),
+        seasons: intOrNull(genre.seasons) || intOrNull(f.seasons),
+        targetWords: intOrNull(f.target_words),
       },
     });
     if (r?.item) {
@@ -1322,10 +1357,15 @@ async function showGenreHistory() {
     <div class="nv-hint" style="margin-top:4px">关键词：${esc((it.keywords || []).join('、') || '—')}｜基调：${esc(it.tone || '—')}</div>
     ${(it.positioning || it.description) ? `<div class="nv-hint" style="margin-top:2px">${esc(String(it.positioning || it.description).slice(0, 100))}</div>` : ''}
     <div class="nv-row" style="margin-top:6px">
-      <button class="nv-btn nv-btn-sm nv-btn-p" data-a="apply" data-i="${i}">应用到表单</button>
+      <button class="nv-btn nv-btn-sm nv-btn-p" data-a="apply" data-i="${i}">一键恢复填写状态</button>
       <button class="nv-btn nv-btn-sm nv-btn-d" data-a="del" data-i="${i}">删除</button>
     </div></div>`).join('')
     : '<div class="nv-empty">还没有历史题材。<br>用「题材生成器」或「AI 头脑风暴」生成一次，就会自动归档到这里。</div>';
+  const hint = document.createElement('div');
+  hint.className = 'nv-hint';
+  hint.style.marginBottom = '8px';
+  hint.textContent = '「一键恢复」会带回该次生成的题材、基调、故事框架、写作技能提示词，以及标题/标题描述/视角/角色规模/季数/总字数；历史最多保留最近 100 条。';
+  body.prepend(hint);
   const m = S.ctx.modal({ title: `🕘 题材生成历史（${items.length}）`, body, width: 720 });
   const bar = document.createElement('div');
   bar.className = 'nv-row';
@@ -1345,14 +1385,10 @@ async function showGenreHistory() {
     if (!btn) return;
     const it = items[Number(btn.dataset.i)];
     if (btn.dataset.a === 'apply' && it) {
-      applyCustomGenre({
-        genreId: it.genreId, name: it.name, category: it.category, tone: it.tone, keywords: it.keywords,
-        positioning: it.positioning, hook: it.hook, description: it.description,
-        frameworkIntro: it.frameworkIntro, skillPrompt: it.skillPrompt, options: it.options,
-      }, it.source === 'brainstorm' ? 'brainstorm' : 'generator');
+      applyHistoryRecord(it);
       S.ctx.api.post(`/api/novels/ai/genre-history/${it.id}/use`, {}).catch(() => { /* ignore */ });
       m.close();
-      toast(`已应用历史题材「${it.name}」`, 'ok');
+      toast(`已恢复「${it.name}」的填写状态`, 'ok');
     } else if (btn.dataset.a === 'del' && it) {
       await guard(async () => S.ctx.api.del(`/api/novels/ai/genre-history/${it.id}`), '已删除');
       S.genreHistory = S.genreHistory.filter((x) => x.id !== it.id);
