@@ -270,6 +270,8 @@ export function buildFrameworkPrompt(input = {}, refText = '') {
         appearance: '',
         personality: '',
         costume: '',
+        promptPos: '英文出图正向提示词（外貌+服装+气质+画风，逗号分隔）',
+        promptNeg: '英文出图负向提示词（要避免的问题）',
         background: '',
         reason: '',
       }],
@@ -291,6 +293,7 @@ export function buildFrameworkPrompt(input = {}, refText = '') {
     `9. 新角色不得与已有角色重名。已有角色名单：${existingNames.length ? existingNames.join('、') : '无'}。`,
     '10. 每个新角色必须写清剧情作用；没有剧情作用的角色不要推荐。',
     '11. 不要编造原文/参数里完全没有的重要设定；可以合理补全，但要服务于题材、字数规模和基调。',
+    '12. 每个新角色必须给出 promptPos（英文出图正向 tag：性别年龄、面部五官、发型发色、服装材质配色、气质、镜头画风）与 promptNeg（英文负向 tag：多肢体、畸形、低质、多余手指、文字水印等）。',
   ].join('\n');
   return { system, user, existingNames };
 }
@@ -383,6 +386,8 @@ export function normalizeFrameworkProposal(raw = {}, input = {}, baseWarnings = 
       appearance: multilineText(item.appearance, 300),
       personality: multilineText(item.personality, 300),
       costume: multilineText(item.costume, 300),
+      promptPos: multilineText(item.promptPos || item.prompt_pos, 400),
+      promptNeg: multilineText(item.promptNeg || item.prompt_neg, 300),
       background: multilineText(item.background, 300),
       reason: multilineText(item.reason, 300),
     });
@@ -420,7 +425,7 @@ export async function generateFrameworkProposal(input = {}) {
   context.existingNames = prompt.existingNames;
   let result;
   try {
-    result = await chatJSON({ system: prompt.system, user: prompt.user });
+    result = await chatJSON({ system: prompt.system, prompt: prompt.user, temperature: 0.7, maxTokens: 8000 });
   } catch (err) {
     throw new Error(`AI 生成故事框架失败：${err.message}`);
   }
@@ -453,6 +458,8 @@ export async function commitCharacters({
       appearance: multilineText(c?.appearance, 300),
       personality: multilineText(c?.personality, 300),
       costume: multilineText(c?.costume, 300),
+      promptPos: multilineText(c?.promptPos || c?.prompt_pos, 400),
+      promptNeg: multilineText(c?.promptNeg || c?.prompt_neg, 300),
       background: multilineText(c?.background, 300),
       reason: multilineText(c?.reason, 300),
       firstAppearance: multilineText(c?.firstAppearance, 120),
@@ -517,6 +524,7 @@ export async function commitCharacters({
       continue;
     }
     try {
+      const promptPos = item.promptPos || [item.costume, item.appearance].map((x) => String(x || '').trim()).filter(Boolean).join(', ');
       const actor = actorsMod.createActor({
         name: item.name,
         alias: '',
@@ -526,6 +534,8 @@ export async function commitCharacters({
         face: item.appearance,
         personality: item.personality,
         costume: item.costume,
+        prompt_pos: promptPos,
+        prompt_neg: item.promptNeg,
         background: [
           item.background,
           item.reason ? `剧情作用：${item.reason}` : '',

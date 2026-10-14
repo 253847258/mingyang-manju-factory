@@ -197,3 +197,78 @@ export function buildGenreCreativeBlueprint(genreOrId) {
 export function listGenreCreativeBlueprints() {
   return GENRES.map((genre) => buildGenreCreativeBlueprint(genre));
 }
+
+// 该题材专属的「故事框架写法参考技能提示词」：供小说工坊展示与复制，
+// 也用于 AI 自动填写时对齐写作标准（全中文，确定性生成，不消耗 LLM 额度）。
+export function buildGenreSkillPrompt(genreOrId) {
+  const genre = typeof genreOrId === 'object' ? genreOrId : genreById(genreOrId);
+  if (!genre?.id) throw new Error('未知题材');
+  const b = buildGenreCreativeBlueprint(genre);
+  const tags = tagsOf(genre).join('、') || genre.name;
+  const lines = [
+    `# ${genre.name}｜故事框架写法技能提示词`,
+    '',
+    `定位：${genre.cat} 题材，核心标签「${tags}」，默认基调「${genre.tone || '题材默认'}」。`,
+    b.creativePositioning,
+    '',
+    '## 写作总原则',
+    '1. 先立长期世界观，再写单元事件；每一季都要能独立成篇，又指向终极谜团。',
+    '2. 主角必须有执念、特别之处与成长代价，成长分阶段解锁，避免一路无敌。',
+    '3. 反派分单元层/系列中层/终极幕后三层，逐层升级，保留反转与灰色立场。',
+    '4. 终极谜团前 1~3 季只释放碎片，严禁一次填坑；伏笔分微型/中型/顶级三级分批回收。',
+    '5. 每个单元按「小钩子开篇 → 危机升级 → 小反转 → 阶段高潮 → 章末悬念」推进。',
+    '',
+    '## 模块 1｜世界观体系',
+    `- 世界风格：${b.worldStyle}`,
+    `- 底层规则：${b.worldRules}`,
+    `- 势力分层：${b.factionLayers}`,
+    `- 循环危机：${b.coreLoopCrisis}`,
+    `- 终极谜团：${b.ultimateMystery}`,
+    '- 结构要求：已探索区域 + 大量未开放区域，为续集预留新地图。',
+    '',
+    '## 模块 2｜人物矩阵',
+    `- 主角公式：${b.protagonistFormula}`,
+    `- 特别之处：${b.protagonistSpecial}`,
+    '- 固定小队：每位成员有独立目标、秘密、专属支线、独有能力与性格缺陷。',
+    '- 反派三层金字塔 + 中立摇摆角色库（情报人、隐士、双面卧底）。',
+    '',
+    '## 模块 3｜主线分段规划',
+    `- 开局：${b.openingFormula}`,
+    '- 阶段目标递进：完成一个目标就发现更大真相，原有认知被推翻。',
+    '- 硬性：主线终极目标不得在前 3 季完成；每季结尾留重大悬念。',
+    `- 结局方向：${b.endingDirection}`,
+    '',
+    '## 模块 4｜支线储备库',
+    '- 角色个人往事支线、遗迹/秘闻/失落历史支线、立场冲突支线、可独立观看的单元小故事。',
+    '',
+    '## 模块 5｜基调、主题与受众',
+    `- 核心主题围绕「选择与代价」贯穿全系列；基调：${genre.tone || '题材默认'}。`,
+    '- 内容约束：明确死亡权重、复活规则、血腥与情感尺度，防止写崩。',
+    '',
+    '## 模块 6｜叙事节奏与爽点',
+    `- 爽点循环：${b.payoffLoop}`,
+    '- 每季安排 2~3 次中型反转、1 次大高潮；每卷末尾预埋新伏笔。',
+    '',
+    '## 模块 7｜伏笔管控',
+    `- 伏笔规则：${b.sequelEngine.mysteryLayers}`,
+    '- 每卷新增 2~4 个新伏笔；顶级核心伏笔只释放碎片，保留到终章。',
+    '',
+    '## 该题材爆款钩子',
+    ...b.hitHooks.slice(0, 6).map((x, i) => `${i + 1}. ${x}`),
+    '',
+    '## 续集发动机',
+    `- 新区域：${b.sequelEngine.newRegions}`,
+    `- 新势力：${b.sequelEngine.newFactions}`,
+    `- 新危机：${b.sequelEngine.newCrisis}`,
+    `- 番外角色：${b.sequelEngine.characterSpinoffs}`,
+  ];
+  return {
+    ok: true,
+    genreId: genre.id,
+    genreName: genre.name,
+    category: genre.cat,
+    tone: genre.tone || '',
+    skillPrompt: lines.join('\n'),
+    blueprint: b,
+  };
+}

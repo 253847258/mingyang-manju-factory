@@ -58,6 +58,7 @@ const FAST = [
   'test-genre-frameworks.js',
   'test-novel-creative-options.js',
   'test-novel-ai-stability.js',
+  'test-novel-brainstorm.js',
   'test-scripting-enhance.js',
 ];
 

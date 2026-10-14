@@ -8,10 +8,12 @@ import {
 import { writeLongChapter } from '../novel-writing.js';
 import { buildNovelAssets } from '../novel-assets.js';
 import { characterFreeMode, updateCharacterFreeMode, discoverPlotCharacters, autoArchivePlotCharacters } from '../novel-characters.js';
-import { buildGenreCreativeBlueprint, listGenreCreativeBlueprints } from '../genre-frameworks.js';
+import { buildGenreCreativeBlueprint, listGenreCreativeBlueprints, buildGenreSkillPrompt } from '../genre-frameworks.js';
+import { brainstormGenre } from '../novel-brainstorm.js';
 import { listCreativeOptions, planGenreFromTitle, getNovelCreativeOptions, updateNovelCreativeOptions } from '../novel-creative-options.js';
 import { ensureNovelSettingsSchema, getNovelAiSettings, updateNovelAiSettings, listNovelCharacterArchive } from '../novel-settings.js';
 import { enqueue } from '../jobs.js';
+import { all } from '../db.js';
 
 function param(ctx, name) {
   return ctx?.params && typeof ctx.params === 'object' ? ctx.params[name] : '';
@@ -40,6 +42,25 @@ export function registerNovelAiRoutes(app) {
       ctx.json({ ok: true, count: blueprints.length, blueprints });
     } catch (err) {
       throw badRequest(err.message || '读取题材创意引擎失败');
+    }
+  });
+
+  app.get('/api/novels/ai/genre-skill-prompt', async (ctx) => {
+    try {
+      const genreId = String(ctx.query?.genre || ctx.query?.genreId || '').trim();
+      if (!genreId) throw new Error('缺少 genre 参数');
+      ctx.json(buildGenreSkillPrompt(genreId));
+    } catch (err) {
+      throw badRequest(err.message || '生成题材写作技能提示词失败');
+    }
+  });
+
+  app.post('/api/novels/ai/brainstorm-genre', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      ctx.json(await brainstormGenre(body));
+    } catch (err) {
+      throw badRequest(err.message || 'AI 头脑风暴创意题材规划失败');
     }
   });
 
@@ -346,5 +367,46 @@ export function registerNovelAiRoutes(app) {
         instruction: String(body.instruction || ''),
       }));
     } catch (err) { throw badRequest(err.message || '长章节写作失败'); }
+  });
+
+  app.post('/api/novels/:id/chapters/ai-write-job', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      const novelId = param(ctx, 'id');
+      novelOf(novelId);
+      const rows = all('SELECT idx, status FROM novel_chapters WHERE novel_id = ? ORDER BY idx', novelId);
+      const mode = String(body.mode || 'next');
+      let targets = [];
+      if (mode === 'range') {
+        const from = Math.max(1, Number(body.from) || 1);
+        const to = Math.max(from, Number(body.to) || from);
+        targets = rows.filter((x) => x.idx >= from && x.idx <= to).map((x) => x.idx);
+      } else if (mode === 'all') {
+        targets = rows.filter((x) => x.status !== 'done' || body.force).map((x) => x.idx);
+      } else {
+        targets = rows.filter((x) => x.status !== 'done').slice(0, Math.max(1, Number(body.count) || 1)).map((x) => x.idx);
+      }
+      if (!targets.length) throw new Error('没有可写作的章节');
+      const jobId = enqueue({
+        type: 'novel_ai',
+        title: `长章正文写作（${targets.length} 章）`,
+        total: targets.length,
+        payload: { action: 'chapter-write', novelId, targets },
+        handler: async (job) => {
+          const results = [];
+          let done = 0;
+          for (const idx of targets) {
+            if (job.isCanceled()) throw new Error('任务已取消');
+            const r = await writeLongChapter(novelId, idx, { save: true, instruction: String(body.instruction || '') });
+            results.push({ idx, words: r.words, mocked: r.mocked, warnings: r.warnings });
+            done += 1;
+            job.step(done, targets.length);
+            job.log(`第 ${idx} 章完成：${r.words} 字`);
+          }
+          return { ok: results.length, total: targets.length, results };
+        },
+      });
+      ctx.json({ ok: true, jobId, total: targets.length, idxs: targets });
+    } catch (err) { throw badRequest(err.message || '创建长章写作任务失败'); }
   });
 }

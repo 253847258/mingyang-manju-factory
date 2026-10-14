@@ -78,9 +78,25 @@ try {
   ok('无创意限制', await page.locator('[data-act="unlimited-cast"]').count() === 1);
   ok('角色自由模式默认开启', await page.locator('[data-role="free_mode"]').isChecked());
   ok('故事框架 AI 自动填写入口', await page.locator('[data-act="ai-framework"]').count() === 1);
+  ok('一键流程四个按钮', await page.locator('[data-act="pipe-params"], [data-act="pipe-outline"], [data-act="pipe-chapters"], [data-act="pipe-write"]').count() === 4);
+  ok('AI 头脑风暴创意题材规划入口', await page.locator('[data-act="brainstorm-genre"]').count() >= 1);
+  ok('自由模式开启时隐藏「最多按剧情新增」', await page.locator('[data-role="free-max-wrap"]').isHidden());
 
   await page.locator('[data-act="unlimited-cast"]').click();
   ok('无创意限制使用系统安全上限', await page.locator('[data-role="cast_size"]').inputValue() === '200');
+
+  // 选题材后出现「写作技能提示词」入口
+  await page.locator('.nv-gitem').first().click();
+  ok('选题材后出现写作技能提示词入口', await page.locator('[data-act="genre-skill"]').count() === 1);
+
+  // AI 自动填写（mock）必须把框架写入故事框架介绍填写区
+  await page.locator('[data-act="ai-framework"]').click();
+  await page.locator('[data-a="ok"]').waitFor({ timeout: 8000 });
+  await page.locator('[data-a="ok"]').click();
+  await page.waitForTimeout(400);
+  const fwText = await page.locator('[data-role="framework_intro"]').inputValue();
+  ok('AI 自动填写把框架写入故事框架介绍', fwText.includes('模块 1') && fwText.length > 200, `${fwText.length} 字`);
+
   ok('无浏览器错误', errors.length === 0, errors.join(' | '));
 
   await browser.close();

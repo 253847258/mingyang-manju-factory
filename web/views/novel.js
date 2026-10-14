@@ -96,6 +96,8 @@ const CSS = `
 .nv-step{display:flex;gap:6px;align-items:center;font-weight:700;font-size:12.5px;margin:2px 0 8px}
 .nv-step em{font-style:normal;background:var(--accent,#6c8cff);color:#0b0b12;border-radius:99px;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;font-size:11px}
 .nv-job{display:flex;gap:8px;align-items:center;background:var(--panel-2,#1e1e28);border:1px solid var(--line,#2a2a36);border-radius:8px;padding:6px 10px;font-size:12px}
+.nv-pipe{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:linear-gradient(90deg,rgba(108,140,255,.12),rgba(72,209,160,.08));border:1px solid var(--line,#2a2a36);border-radius:8px;padding:7px 10px}
+.nv-pipe-t{font-weight:700;font-size:12px;color:var(--accent,#6c8cff)}
 .nv-split{display:flex;gap:10px;align-items:flex-start}
 .nv-lbl{color:var(--muted,#8b8b9c);font-size:11.5px;margin-bottom:3px;display:block}
 .nv-num{max-width:110px}
@@ -333,7 +335,7 @@ function applyFormFromNovel(n) {
     ref_doc_path: n.ref_doc_path || '', ref_doc_name: n.ref_doc_name || '',
     actor_ids: (n.actor_ids || []).slice(), custom_actors: (n.custom_actors || []).map((c) => ({ ...c })),
     free_mode: S.freeMode?.enabled !== false,
-    free_max: num(S.freeMode?.maxCharacters, num(n.cast_size, 20)),
+    free_max: (S.freeMode?.enabled !== false) ? limits().castSize.max : num(S.freeMode?.maxCharacters, num(n.cast_size, 20)),
     free_style: S.freeMode?.stylePolicy || 'plot-driven',
     title_description: S.creativeOptions?.titleDescription || '',
     auto_pov: Boolean(S.creativeOptions?.autoPov),
@@ -349,7 +351,7 @@ function newForm() {
     cast_size: limits().castSize.default, target_words: limits().targetWords.default,
     chapter_words: limits().chapterWords.default, pov: S.povs[0]?.id || 'third-limited', seasons: 1,
     framework_intro: '', ref_doc_path: '', ref_doc_name: '', actor_ids: [], custom_actors: [],
-    free_mode: true, free_max: limits().castSize.default, free_style: 'plot-driven',
+    free_mode: true, free_max: limits().castSize.max, free_style: 'plot-driven',
     title_description: '', auto_pov: false, auto_cast: false, unlimited_characters: false,
   };
 }
@@ -407,7 +409,17 @@ function mainHtml() {
 
 // ---------- 创建 / 参数表单 ----------
 function createHtml() {
-  return formHtml('create');
+  return `${pipelineHtml()}<div class="nv-hint" style="margin:-2px 0 4px">一键流程：① 加入参数与角色 → ② 生成大纲 → ③ 生成逐章大纲 → ④ 写作正文。每步都会先保存当前表单。</div>${formHtml('create')}`;
+}
+
+function pipelineHtml() {
+  return `<div class="nv-pipe">
+    <span class="nv-pipe-t">一键流程</span>
+    <button class="nv-btn nv-btn-p nv-btn-sm" data-act="pipe-params" title="AI 补全参数（题材/基调/视角/规模）+ 生成故事框架 + 按剧情补齐角色">① 一键加入参数角色</button>
+    <button class="nv-btn nv-btn-sm" data-act="pipe-outline" title="按整条故事线生成完整大纲（章节大纲 + 全部叙事分节）">② 一键生成大纲</button>
+    <button class="nv-btn nv-btn-sm" data-act="pipe-chapters" title="从第 1 章到最后一章逐章生成 2500-3500 字章节大纲">③ 一键生成章节</button>
+    <button class="nv-btn nv-btn-a nv-btn-sm" data-act="pipe-write" title="按章节大纲逐章写作正文（未写的章节）">④ 一键写作</button>
+  </div>`;
 }
 
 function formHtml(mode) {
@@ -469,7 +481,13 @@ function formHtml(mode) {
       </div>
       <div class="nv-grid">${shown.map((g) => `<div class="nv-gitem ${g.id === f.genre ? 'nv-on' : ''}" data-act="genre" data-id="${esc(g.id)}">
         <b>${esc(g.name)}</b><span>${esc(g.cat)} · ${esc(g.desc || '')}</span><span>钩子：${esc(g.hook || '—')}</span></div>`).join('')}</div>
-      ${genre ? `<div class="nv-row" style="margin-top:6px"><span class="nv-hint">推荐基调：${esc(genre.tone || '—')}｜关键词：${esc((genre.tags || []).join('、'))}｜开篇钩子：${esc(genre.hook || '—')}</span><button class="nv-btn nv-btn-sm" data-act="genre-blueprint" data-id="${esc(genre.id)}">查看 AI 题材创意引擎</button></div>` : ''}
+      <div class="nv-row" style="margin-top:8px">
+        <button class="nv-btn nv-btn-a nv-btn-sm" data-act="brainstorm-genre" title="没想好题材时，让 AI 根据标题/基调头脑风暴一个能出爆款、可无限发展续集的题材与参数">💡 AI 头脑风暴创意题材规划</button>
+        ${genre ? `<button class="nv-btn nv-btn-sm" data-act="genre-skill" data-id="${esc(genre.id)}" title="显示该题材专属的故事框架写法参考技能提示词">📐 写作技能提示词</button>
+        <button class="nv-btn nv-btn-sm" data-act="genre-blueprint" data-id="${esc(genre.id)}">查看 AI 题材创意引擎</button>`
+          : '<span class="nv-hint">未选题材时，可先用「AI 头脑风暴创意题材规划」自动选题材、基调、角色规模并写入故事框架。</span>'}
+      </div>
+      ${genre ? `<div class="nv-hint" style="margin-top:4px">推荐基调：${esc(genre.tone || '—')}｜关键词：${esc((genre.tags || []).join('、'))}｜开篇钩子：${esc(genre.hook || '—')}</div>` : ''}
     </div>
 
     <div class="nv-step" style="margin-top:14px"><em>2</em>定义演员（引用模块1演员表 + 自定义角色，合计 ≤ ${num(f.cast_size, 20)} / 200）
@@ -504,8 +522,8 @@ function formHtml(mode) {
 
     <div class="nv-note" style="margin-top:10px">
       <div class="nv-row">
-        <label class="nv-row" style="cursor:pointer"><input type="checkbox" data-role="free_mode" ${f.free_mode !== false ? 'checked' : ''}> <b>角色自由模式（默认开启）</b></label>
-        <label class="nv-f"><span class="nv-lbl">最多按剧情新增</span><input class="nv-input nv-num" data-role="free-max" type="number" min="1" max="${num(f.cast_size, 20)}" value="${num(f.free_max, num(f.cast_size, 20))}"></label>
+        <label class="nv-row" style="cursor:pointer"><input type="checkbox" data-role="free_mode" ${f.free_mode !== false ? 'checked' : ''}> <b>角色自由模式（默认开启，数量与风格全由 AI 按剧情规划）</b></label>
+        <label class="nv-f" data-role="free-max-wrap" style="${f.free_mode !== false ? 'display:none' : ''}"><span class="nv-lbl">最多按剧情新增</span><input class="nv-input nv-num" data-role="free-max" type="number" min="1" max="${num(f.cast_size, 20)}" value="${num(f.free_max, num(f.cast_size, 20))}"></label>
         <label class="nv-f" style="min-width:190px"><span class="nv-lbl">角色风格策略</span>
           <select class="nv-select" data-role="free-style">
             ${[
@@ -525,10 +543,10 @@ function formHtml(mode) {
 
     <div class="nv-step" style="margin-top:14px"><em>3</em>故事框架介绍 与 参考范本
       <span class="nv-grow"></span>
-      <button class="nv-btn nv-btn-sm" data-act="ai-framework" title="调用 1 次 LLM，生成故事框架、标题和角色建议">✨ AI 自动填写</button>
+      <button class="nv-btn nv-btn-p nv-btn-sm" data-act="ai-framework" title="调用 1 次 LLM，按 7 模块生成故事框架，并直接写入下方填写区（含标题与角色建议）">✨ AI 自动填写并写入故事框架</button>
     </div>
     <textarea class="nv-area" id="nv-framework" data-role="framework_intro" rows="7" placeholder="把故事框架尽量写清楚：主角是谁、想要什么、阻碍是什么、世界规则、开局与结局方向、必须出现的桥段…（越具体，大纲越贴合）">${esc(f.framework_intro)}</textarea>
-    <div class="nv-hint" id="nv-fw-count">已输入 ${String(f.framework_intro || '').length} 字 · AI 自动填写会调用 1 次 LLM</div>
+    <div class="nv-hint" id="nv-fw-count">已输入 ${String(f.framework_intro || '').length} 字 · 点上方按钮后 AI 会按 7 模块把完整框架直接写入这里（调用 1 次 LLM）</div>
     <div class="nv-row" style="margin-top:8px">
       <button class="nv-btn" data-act="upload-ref">📎 上传故事框架参考范本（txt/md/json）</button>
       <input type="file" id="nv-ref-file" accept=".txt,.md,.markdown,.json,.csv,text/*" style="display:none">
@@ -581,6 +599,7 @@ function workspaceHtml() {
         <button class="nv-btn" data-act="write-batch">批量写作…</button>
         ${S.detail.outline ? `<span class="nv-pill">大纲 v${S.detail.outline.version}｜${esc(S.detail.outline.model || '')}｜规划 ${(S.detail.outline.sections?.chapters || []).length} 章</span>` : '<span class="nv-hint">尚未生成大纲</span>'}
       </div>
+      ${pipelineHtml()}
       ${jobBarHtml()}
       ${assetIndexHtml()}
       <div class="nv-tabs" style="margin-top:10px">${tabs.map(([k, label]) => `<button class="nv-tab ${S.tab === k ? 'nv-on' : ''}" data-act="tab" data-tab="${k}">${esc(label)}</button>`).join('')}</div>
@@ -1039,6 +1058,166 @@ async function planGenreFromForm() {
   toast(`AI 规划题材：${r.genreName}（${Math.round((r.confidence || 0) * 100)}%）${r.reason ? `｜${r.reason}` : ''}`, 'ok');
 }
 
+// 把「AI 头脑风暴创意题材规划」的结果应用到当前表单（不写库）
+function applyBrainstormToForm(r) {
+  if (!r) return;
+  S.form = collectForm();
+  if (r.genreId) {
+    S.form.genre = r.genreId;
+    const g = S.genres.find((x) => x.id === r.genreId);
+    S.genreCat = g?.cat || S.genreCat;
+    S.genreQ = '';
+  }
+  if (r.tone) S.form.tone = r.tone;
+  if (r.title) S.form.title = r.title;
+  if (r.titleDescription) S.form.title_description = r.titleDescription;
+  if (r.pov) {
+    const pov = S.povs.find((p) => p.id === r.pov || p.name === r.pov || String(r.pov).includes(p.name) || p.name.includes(String(r.pov)));
+    if (pov) S.form.pov = pov.id;
+  }
+  const cast = Math.min(limits().castSize.max, Math.max(1, num(r.castSize, S.form.cast_size)));
+  S.form.cast_size = cast;
+  S.form.free_max = cast;
+  if (r.seasons) S.form.seasons = Math.min(99, Math.max(1, num(r.seasons, S.form.seasons)));
+  if (r.frameworkIntro) S.form.framework_intro = r.frameworkIntro;
+  if (r.skillPrompt) S.genreSkillPrompt = r.skillPrompt;
+  render();
+}
+
+function showBrainstormPreview(r) {
+  const wrap = document.createElement('div');
+  const alts = Array.isArray(r.alternatives) ? r.alternatives : [];
+  wrap.innerHTML = `
+    ${r.mocked ? '<div class="nv-warn" style="margin-bottom:8px">当前为离线模板（mock）方案，配置真实 LLM 后可获得更强的选题创意。</div>' : ''}
+    <div class="nv-note" style="line-height:1.8"><b>推荐题材：${esc(r.genreName || '')}</b>（${esc(r.category || '')}）｜基调：${esc(r.tone || '—')}｜推荐视角：${esc(r.pov || '—')}｜推荐角色规模：${esc(String(r.castSize || ''))}｜季数：${esc(String(r.seasons || ''))}</div>
+    ${r.reason ? `<div class="nv-hint" style="margin-top:6px">推荐理由：${esc(r.reason)}</div>` : ''}
+    ${alts.length ? `<div class="nv-hint" style="margin-top:4px">其他候选：${alts.map((x) => esc(x.genreName)).join('、')}</div>` : ''}
+    <div class="nv-card" style="padding:10px;margin-top:8px">
+      <div class="nv-card-t">故事框架（会写入「故事框架介绍」）</div>
+      <div class="nv-preview" style="max-height:320px">${esc(r.frameworkIntro || '')}</div>
+    </div>
+    ${r.skillPrompt ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">该题材写作技能提示词</summary><div class="nv-preview" style="max-height:240px;margin-top:6px">${esc(r.skillPrompt)}</div></details>` : ''}`;
+  const m = S.ctx.modal({ title: '💡 AI 头脑风暴创意题材规划', body: wrap, width: 800 });
+  const bar = document.createElement('div');
+  bar.className = 'nv-row';
+  bar.style.marginTop = '10px';
+  bar.innerHTML = '<button class="nv-btn nv-btn-p" data-a="ok">应用并填入表单</button><button class="nv-btn" data-a="again">重新规划</button><button class="nv-btn" data-a="no">取消</button>';
+  wrap.appendChild(bar);
+  bar.querySelector('[data-a="no"]').onclick = () => m.close();
+  bar.querySelector('[data-a="again"]').onclick = () => { m.close(); setTimeout(() => brainstormGenreFromForm(), 0); };
+  bar.querySelector('[data-a="ok"]').onclick = () => {
+    applyBrainstormToForm(r);
+    m.close();
+    toast('AI 创意题材、参数与故事框架已填入表单，请检查后保存', 'ok');
+  };
+}
+
+async function brainstormGenreFromForm() {
+  if (S.busy) return;
+  S.form = collectForm();
+  const r = await guard(async () => S.ctx.api.post('/api/novels/ai/brainstorm-genre', {
+    title: S.form.title || '',
+    titleDescription: S.form.title_description || '',
+    tone: S.form.tone || '',
+    targetWords: num(S.form.target_words, 1000000),
+    chapterWords: num(S.form.chapter_words, 2000),
+  }));
+  if (r?.genreId) showBrainstormPreview(r);
+}
+
+async function showGenreSkillPrompt(genreId) {
+  const id = genreId || S.form?.genre;
+  if (!id) { toast('请先选择题材', 'err'); return; }
+  const r = await guard(async () => S.ctx.api.get(`/api/novels/ai/genre-skill-prompt?genre=${encodeURIComponent(id)}`));
+  if (!r?.skillPrompt) return;
+  S.genreSkillPrompt = r.skillPrompt;
+  const body = document.createElement('div');
+  body.innerHTML = `<div class="nv-hint" style="margin-bottom:6px">这是「${esc(r.genreName)}」题材专属的故事框架写法参考技能提示词，可作为写作标准或参考范本。</div>
+    <div class="nv-preview" style="max-height:440px">${esc(r.skillPrompt)}</div>`;
+  const m = S.ctx.modal({ title: '📐 题材写作技能提示词', body, width: 760 });
+  const bar = document.createElement('div');
+  bar.className = 'nv-row';
+  bar.style.marginTop = '10px';
+  bar.innerHTML = '<button class="nv-btn nv-btn-p" data-a="copy">复制</button><button class="nv-btn" data-a="close">关闭</button>';
+  body.appendChild(bar);
+  bar.querySelector('[data-a="close"]').onclick = () => m.close();
+  bar.querySelector('[data-a="copy"]').onclick = async () => {
+    try { await navigator.clipboard.writeText(r.skillPrompt); toast('已复制写作技能提示词', 'ok'); }
+    catch { toast('浏览器拒绝了剪贴板权限，请手动选择复制', 'err'); }
+  };
+}
+
+// 保存当前表单（创建页会创建项目）；返回是否已存在可操作的 novelId
+async function ensureNovelSaved() {
+  if (S.currentId && S.formMode !== 'create') return true;
+  S.form = collectForm();
+  if (!String(S.form.title || '').trim() || !S.form.genre) {
+    toast('请先填写标题并选择题材（或点「AI 头脑风暴创意题材规划」自动补全）', 'err');
+    return false;
+  }
+  toast('正在保存参数与角色…', 'info');
+  await saveForm();
+  return Boolean(S.currentId) && S.formMode !== 'create';
+}
+
+async function pipelineParamsAndCast() {
+  if (S.busy) return;
+  S.form = collectForm();
+  if (!S.form.genre || !String(S.form.title || '').trim()) {
+    const r = await guard(async () => S.ctx.api.post('/api/novels/ai/brainstorm-genre', {
+      title: S.form.title || '',
+      titleDescription: S.form.title_description || '',
+      tone: S.form.tone || '',
+      targetWords: num(S.form.target_words, 1000000),
+      chapterWords: num(S.form.chapter_words, 2000),
+    }));
+    if (!r?.genreId) return;
+    applyBrainstormToForm(r);
+    if (!(await S.ctx.confirm('已用 AI 补全题材与参数。是否继续生成故事框架并按剧情补齐角色？'))) return;
+  }
+  if (!(await ensureNovelSaved())) return;
+  await openAiFramework();
+}
+
+async function pipelineOutline() {
+  if (S.busy) return;
+  if (!(await ensureNovelSaved())) return;
+  const estimate = await S.ctx.api.get(`/api/novels/${S.currentId}/estimate?action=outline`).catch(() => null);
+  const calls = estimate?.estimate?.llmCalls || 1;
+  if (!(await S.ctx.confirm(`将按整条故事线生成完整大纲（逐章大纲 + 全部叙事分节），预计约 ${calls} 次 LLM 调用，任务进入后台队列。继续？`))) return;
+  const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/robust-job`, {
+    instruction: '按整条故事线规划每章章首、章末与上下文衔接，确保前后逻辑一致；补齐全部非章节分节。',
+  }));
+  if (!r?.jobId) return;
+  S.tab = 'outline';
+  watchAiJob(r.jobId, `一键生成大纲（${r.total} 步）`);
+}
+
+async function pipelineChapters() {
+  if (S.busy) return;
+  if (!(await ensureNovelSaved())) return;
+  if (!S.detail?.outline) { toast('还没有大纲：请先点「② 一键生成大纲」', 'err'); return; }
+  const stats = chapterPlanStatsLocal(S.detail?.outline?.sections?.chapters || [], S.detail?.novel);
+  const expected = stats.expected || (S.detail?.outline?.sections?.chapters || []).length;
+  if (!expected) { toast('无法推导章节数，请检查总字数与单章字数', 'err'); return; }
+  if (!(await S.ctx.confirm(`将从第 1 章到第 ${expected} 章逐章生成 ${CHAPTER_OUTLINE_MIN_CHARS}-${CHAPTER_OUTLINE_MAX_CHARS} 字章节大纲，已有内容会被覆盖（正文不受影响）。继续？`))) return;
+  const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/rewrite-all`, {
+    instruction: '整章大纲必须从章首状态推进到章末状态，承上启下，并与整条故事线、重大转折和结局逻辑一致。',
+  }));
+  if (!r?.jobId) return;
+  S.tab = 'outline';
+  watchAiJob(r.jobId, `一键生成章节大纲（${r.total} 章）`);
+}
+
+async function pipelineWrite() {
+  if (S.busy) return;
+  if (!(await ensureNovelSaved())) return;
+  const todo = (S.detail?.chapters || []).filter((c) => c.status !== 'done');
+  if (!todo.length) { toast('所有章节都已写完', 'info'); return; }
+  if (!(await S.ctx.confirm(`将逐章写作 ${todo.length} 章正文（每章 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字），任务进入后台队列。继续？`))) return;
+  await startWrite({ mode: 'all' });
+}
+
 function showAutoCharacterReport(r) {
   const created = Array.isArray(r.created) ? r.created : [];
   const failed = Array.isArray(r.failed) ? r.failed : [];
@@ -1215,6 +1394,7 @@ function showAiFrameworkPreview(proposal, payload) {
     }
     S.form = collectForm();
     S.form.title = selectedTitle;
+    if (!String(frameworkText || '').trim()) { toast('AI 未返回有效框架内容，请点「重新生成」再试', 'err'); okBtn.disabled = false; return; }
     S.form.framework_intro = frameworkText;
     if (payload.autoPov && framework.recommendedPov) {
       const recommended = String(framework.recommendedPov);
@@ -1233,7 +1413,9 @@ function showAiFrameworkPreview(proposal, payload) {
     m.close();
     S.tab = 'params';
     render();
-    toast(proposal.mocked ? '已填入离线占位内容；mock 模式不会创建角色卡' : 'AI 内容已填入，请检查后点「保存修改」', 'ok');
+    const area = S.root?.querySelector('[data-role="framework_intro"]');
+    if (area) area.value = frameworkText;
+    toast(proposal.mocked ? '已把离线占位框架写入「故事框架介绍」；mock 模式不会创建角色卡' : `已把故事框架（${frameworkText.length} 字）写入「故事框架介绍」，请检查后点「保存修改」`, 'ok');
   };
 }
 
@@ -1610,11 +1792,11 @@ async function startWrite(payload) {
       await S.ctx.api.put(`/api/novels/${S.currentId}`, { chapter_words: CHAPTER_WRITE_TARGET_WORDS });
       await reloadDetail();
     }
-    return S.ctx.api.post(`/api/novels/${S.currentId}/chapters/generate`, payload);
+    return S.ctx.api.post(`/api/novels/${S.currentId}/chapters/ai-write-job`, payload);
   });
   if (r?.jobId) {
     S.tab = 'chapters';
-    watchJob(r.jobId);
+    watchAiJob(r.jobId, `一键写作（${r.total} 章）`);
     toast(`已创建长章写作任务：${r.total} 章（按 ${CHAPTER_WRITE_MIN_WORDS}-${CHAPTER_WRITE_MAX_WORDS} 字规划）`, 'info');
   }
 }
@@ -1775,6 +1957,12 @@ async function onClickEvent(e) {
     }
     case 'ai-framework': await openAiFramework(); return;
     case 'genre-blueprint': await showGenreBlueprint(el.dataset.id); return;
+    case 'genre-skill': await showGenreSkillPrompt(el.dataset.id); return;
+    case 'brainstorm-genre': await brainstormGenreFromForm(); return;
+    case 'pipe-params': await pipelineParamsAndCast(); return;
+    case 'pipe-outline': await pipelineOutline(); return;
+    case 'pipe-chapters': await pipelineChapters(); return;
+    case 'pipe-write': await pipelineWrite(); return;
     case 'upload-ref': S.root.querySelector('#nv-ref-file')?.click(); return;
     case 'clear-ref':
       S.form = collectForm(); S.form.ref_doc_path = ''; S.form.ref_doc_name = ''; render(); return;
@@ -1908,6 +2096,14 @@ function onChangeEvent(e) {
     return;
   }
   if (['mode', 'force', 'cgender'].includes(role)) return;
+  if (role === 'free_mode') {
+    S.form = collectForm();
+    const on = !!e.target.checked;
+    if (on) S.form.free_max = limits().castSize.max;
+    const wrap = S.root?.querySelector('[data-role="free-max-wrap"]');
+    if (wrap) wrap.style.display = on ? 'none' : '';
+    return;
+  }
   if (role === 'chapter_words' || role === 'target_words' || role === 'cast_size' || role === 'seasons') {
     S.form = collectForm();
     updateDerivedHints();
