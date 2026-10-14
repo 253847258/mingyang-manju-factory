@@ -31,7 +31,7 @@ function povName(id, fallback = '第三人称限知（跟随主角）') {
   return found?.name || fallback;
 }
 
-function frameworkIntroFromBlueprint(b, { title = '', tone = '', targetWords = 1000000 } = {}) {
+export function frameworkIntroFromBlueprint(b, { title = '', tone = '', targetWords = 1000000 } = {}) {
   const scale = scalePlanOf({ targetWords });
   const name = title || `${b.genreName}·未命名`;
   const tag = '【AI 创意规划】';

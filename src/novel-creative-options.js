@@ -46,6 +46,8 @@ export function getNovelCreativeOptions(novelId) {
     autoPov: settings.autoPov,
     autoCast: settings.autoCast,
     unlimitedCharacters: settings.unlimitedCharacters,
+    genreMode: settings.genreMode,
+    customGenre: settings.customGenre,
   };
 }
 
@@ -55,6 +57,8 @@ export function updateNovelCreativeOptions(novelId, patch = {}) {
     autoPov: Boolean(patch.autoPov),
     autoCast: Boolean(patch.autoCast),
     unlimitedCharacters: Boolean(patch.unlimitedCharacters),
+    ...('genreMode' in patch ? { genreMode: patch.genreMode } : {}),
+    ...('customGenre' in patch ? { customGenre: patch.customGenre } : {}),
   });
   return getNovelCreativeOptions(novelId);
 }

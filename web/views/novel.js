@@ -158,7 +158,7 @@ const S = {
   creativeOptions: null,
   tab: 'params',
   genres: [], categories: [], povs: POV_FALLBACK, tones: TONE_FALLBACK, sections: OUTLINE_SECTIONS_FALLBACK, limits: null,
-  genreCat: '全部', genreQ: '',
+  genreCat: '全部', genreQ: '', genreMode: 'system', genreCollapsed: false, genreOptions: null,
   actors: [], actorQ: '', actorsLoaded: false,
   form: null, formMode: 'create',
   chapterIdx: null, chapter: null, editing: false,
@@ -341,7 +341,10 @@ function applyFormFromNovel(n) {
     auto_pov: Boolean(S.creativeOptions?.autoPov),
     auto_cast: Boolean(S.creativeOptions?.autoCast),
     unlimited_characters: Boolean(S.creativeOptions?.unlimitedCharacters),
+    custom_genre: S.creativeOptions?.customGenre || null,
   };
+  S.genreMode = S.creativeOptions?.genreMode || 'system';
+  S.genreCollapsed = false;
 }
 
 function newForm() {
@@ -353,7 +356,10 @@ function newForm() {
     framework_intro: '', ref_doc_path: '', ref_doc_name: '', actor_ids: [], custom_actors: [],
     free_mode: true, free_max: limits().castSize.max, free_style: 'plot-driven',
     title_description: '', auto_pov: false, auto_cast: false, unlimited_characters: false,
+    custom_genre: null,
   };
+  S.genreMode = 'system';
+  S.genreCollapsed = false;
 }
 const castTotal = () => (S.form?.actor_ids?.length || 0) + (S.form?.custom_actors?.length || 0);
 
@@ -394,7 +400,7 @@ function itemHtml(n) {
   const pct = num(st.progress, 0);
   return `<div class="nv-item ${S.currentId === n.id ? 'nv-on' : ''}" data-act="open" data-id="${esc(n.id)}">
     <div class="nv-item-t"><span>${esc(n.title)}</span>${badge(`${st.written || 0}/${st.total || 0} 章`, pct > 0 ? 'acc' : '')}</div>
-    <div class="nv-item-m"><span>${esc(n.id)}</span><span>${esc(n.genre_name || '未选题材')}</span><span>${fmtWords(n.target_words)}/${num(n.chapter_words, 2000)}字</span></div>
+    <div class="nv-item-m"><span>${esc(n.id)}</span><span>${esc(n.genre_name || (String(n.genre || '').startsWith('custom-') ? '自定义题材' : (n.genre === 'custom-free' ? '自由创作' : '未选题材')))}</span><span>${fmtWords(n.target_words)}/${num(n.chapter_words, 2000)}字</span></div>
     <div class="nv-row" style="margin-top:5px"><div class="nv-bar"><i style="width:${Math.min(100, pct)}%"></i></div><span class="nv-muted">${fmtWords(st.words || 0)}</span>
       <button class="nv-btn nv-btn-sm nv-btn-d" data-act="del-novel" data-id="${esc(n.id)}">删</button></div>
   </div>`;
@@ -422,6 +428,95 @@ function pipelineHtml() {
   </div>`;
 }
 
+function currentGenreLabel() {
+  const f = S.form || {};
+  const custom = f.custom_genre;
+  if (custom && custom.name && f.genre === custom.genreId) return `自定义：${custom.name}`;
+  if (f.genre === 'custom-free') return '自由创作（不限定题材）';
+  const g = S.genres.find((x) => x.id === f.genre);
+  return g ? `已选：${g.name}（${g.cat}）` : '';
+}
+
+function novelGenreLabel(n) {
+  if (!n) return '未选题材';
+  const cg = S.creativeOptions?.customGenre;
+  if (cg && cg.genreId === n.genre && cg.name) return cg.name;
+  if (n.genre === 'custom-free') return '自由创作';
+  if (n.genre_name) return n.genre_name;
+  if (String(n.genre || '').startsWith('custom-')) return '自定义题材';
+  return '未选题材';
+}
+
+function systemGenrePanel(f, shown, genre, isFree) {
+  const collapsed = !!S.genreCollapsed;
+  return `
+    <div class="nv-row" style="margin-bottom:6px">
+      <button class="nv-btn nv-btn-sm" data-act="genre-collapse">${collapsed ? '展开 100 种题材' : '收起题材列表'}</button>
+      <button class="nv-btn nv-btn-sm ${isFree ? 'nv-btn-a' : ''}" data-act="genre-off">${isFree ? '已关闭系统题材（自由创作）' : '关闭系统题材（不按 100 种写）'}</button>
+      <input class="nv-input" id="nv-genre-q" data-role="genreQ" style="max-width:180px" placeholder="搜索题材关键词…" value="${esc(S.genreQ)}">
+      <span class="nv-hint">共 ${S.genres.length} 种，命中 ${shown.length} 种</span>
+    </div>
+    ${isFree ? '<div class="nv-note" style="margin-bottom:6px">当前为自由创作：不套用系统题材，故事框架、大纲与正文由 AI 按你的设定与关键词自由规划。</div>' : ''}
+    ${collapsed ? '' : `
+    <div class="nv-chips" style="margin-bottom:6px">
+      <button class="nv-chip ${S.genreCat === '全部' ? 'nv-on' : ''}" data-act="cat" data-cat="全部">全部</button>
+      ${S.categories.map((c) => `<button class="nv-chip ${S.genreCat === c ? 'nv-on' : ''}" data-act="cat" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
+    </div>
+    <div class="nv-grid">${shown.map((g) => `<div class="nv-gitem ${g.id === f.genre ? 'nv-on' : ''}" data-act="genre" data-id="${esc(g.id)}">
+      <b>${esc(g.name)}</b><span>${esc(g.cat)} · ${esc(g.desc || '')}</span><span>钩子：${esc(g.hook || '—')}</span></div>`).join('')}</div>
+    <div class="nv-row" style="margin-top:8px">
+      ${genre ? `<button class="nv-btn nv-btn-sm" data-act="genre-skill" data-id="${esc(genre.id)}" title="显示该题材专属的故事框架写法参考技能提示词">📐 写作技能提示词</button>
+      <button class="nv-btn nv-btn-sm" data-act="genre-blueprint" data-id="${esc(genre.id)}">查看 AI 题材创意引擎</button>`
+        : '<span class="nv-hint">点上方题材卡片选择一个系统题材。</span>'}
+    </div>
+    ${genre ? `<div class="nv-hint" style="margin-top:4px">推荐基调：${esc(genre.tone || '—')}｜关键词：${esc((genre.tags || []).join('、'))}｜开篇钩子：${esc(genre.hook || '—')}</div>` : ''}
+    `}`;
+}
+
+function customGenrePanel(kind, custom) {
+  const isGen = kind === 'generator';
+  const active = custom && S.genreMode === kind;
+  return `
+    <div class="nv-note">
+      ${isGen
+        ? '题材生成器：按「世界背景 × 主角设定 × 核心冲突 × 基调 × 节奏 × 受众 × 关键词」组合出一个自定义题材，不联网、不消耗额度。'
+        : 'AI 头脑风暴创意题材规划：让 AI 从 100 种题材里挑一个最易出爆款、可无限续集的题材，并给出参数与完整故事框架。'}
+    </div>
+    <div class="nv-row" style="margin-top:8px">
+      <button class="nv-btn nv-btn-a" data-act="${isGen ? 'open-genre-generator' : 'brainstorm-genre'}">${isGen ? '🧪 打开题材生成器' : '💡 开始 AI 头脑风暴'}</button>
+    </div>
+    ${active && custom ? `<div class="nv-card" style="padding:10px;margin-top:8px">
+      <div class="nv-card-t">当前自定义题材：${esc(custom.name || '')}</div>
+      <div class="nv-hint" style="line-height:1.7">${esc(custom.positioning || custom.description || '')}<br>
+      关键词：${esc((custom.keywords || []).join('、') || '—')}<br>基调：${esc(custom.tone || '—')}</div>
+    </div>` : ''}`;
+}
+
+function genreSectionHtml(f) {
+  const mode = S.genreMode || 'system';
+  const label = currentGenreLabel();
+  const shown = S.genres.filter((g) => (S.genreCat === '全部' || g.cat === S.genreCat)
+    && (!S.genreQ || `${g.name} ${(g.tags || []).join(' ')} ${g.desc || ''}`.toLowerCase().includes(S.genreQ.toLowerCase())));
+  const genre = S.genres.find((g) => g.id === f.genre) || null;
+  const isFree = f.genre === 'custom-free';
+  const custom = f.custom_genre && f.genre === f.custom_genre.genreId ? f.custom_genre : null;
+  return `<div style="margin-top:10px">
+    <div class="nv-row" style="margin-bottom:6px">
+      <b style="font-size:12.5px">题材（3 选 1）</b>
+      <div class="nv-chips">
+        <button class="nv-chip ${mode === 'system' ? 'nv-on' : ''}" data-act="genre-mode" data-mode="system">① 选择系统题材</button>
+        <button class="nv-chip ${mode === 'generator' ? 'nv-on' : ''}" data-act="genre-mode" data-mode="generator">② 题材生成器</button>
+        <button class="nv-chip ${mode === 'brainstorm' ? 'nv-on' : ''}" data-act="genre-mode" data-mode="brainstorm">③ AI 头脑风暴</button>
+      </div>
+      <span class="nv-grow"></span>
+      <span class="nv-pill ${label ? '' : 'nv-badge-warn'}">${esc(label || '尚未确定题材')}</span>
+    </div>
+    ${mode === 'system' ? systemGenrePanel(f, shown, genre, isFree) : ''}
+    ${mode === 'generator' ? customGenrePanel('generator', custom) : ''}
+    ${mode === 'brainstorm' ? customGenrePanel('brainstorm', custom) : ''}
+  </div>`;
+}
+
 function formHtml(mode) {
   const f = S.form;
   const lim = limits();
@@ -438,7 +533,7 @@ function formHtml(mode) {
       <button class="nv-btn nv-btn-p" data-act="${overCast ? 'cast-warn' : 'save-form'}">${mode === 'create' ? '创建项目' : '保存修改'}</button>
     </div>
 
-    <div class="nv-step"><em>1</em>题材与参数${genre ? `　<span class="nv-pill">已选：${esc(genre.name)}（${esc(genre.cat)}）</span>` : '　<span class="nv-pill">未选</span>'}</div>
+    <div class="nv-step"><em>1</em>题材与参数${(() => { const l = currentGenreLabel(); return l ? `　<span class="nv-pill">${esc(l)}</span>` : '　<span class="nv-pill">未选</span>'; })()}</div>
     <div class="nv-row">
       <div class="nv-f nv-grow"><span class="nv-lbl">标题</span>
         <div class="nv-row"><input class="nv-input nv-grow" id="nv-title" data-role="title" style="min-width:220px" placeholder="例如：剑落青芜" value="${esc(f.title)}">
@@ -471,24 +566,7 @@ function formHtml(mode) {
       </div>
     </div>
 
-    <div style="margin-top:10px">
-      <div class="nv-row" style="margin-bottom:6px"><b style="font-size:12.5px">题材（100 种，可按分类筛选 / 关键词搜索）</b>
-        <input class="nv-input" id="nv-genre-q" data-role="genreQ" style="max-width:200px" placeholder="搜索题材关键词…" value="${esc(S.genreQ)}">
-        <span class="nv-hint">共 ${S.genres.length} 种，命中 ${shown.length} 种</span></div>
-      <div class="nv-chips" style="margin-bottom:6px">
-        <button class="nv-chip ${S.genreCat === '全部' ? 'nv-on' : ''}" data-act="cat" data-cat="全部">全部</button>
-        ${S.categories.map((c) => `<button class="nv-chip ${S.genreCat === c ? 'nv-on' : ''}" data-act="cat" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
-      </div>
-      <div class="nv-grid">${shown.map((g) => `<div class="nv-gitem ${g.id === f.genre ? 'nv-on' : ''}" data-act="genre" data-id="${esc(g.id)}">
-        <b>${esc(g.name)}</b><span>${esc(g.cat)} · ${esc(g.desc || '')}</span><span>钩子：${esc(g.hook || '—')}</span></div>`).join('')}</div>
-      <div class="nv-row" style="margin-top:8px">
-        <button class="nv-btn nv-btn-a nv-btn-sm" data-act="brainstorm-genre" title="没想好题材时，让 AI 根据标题/基调头脑风暴一个能出爆款、可无限发展续集的题材与参数">💡 AI 头脑风暴创意题材规划</button>
-        ${genre ? `<button class="nv-btn nv-btn-sm" data-act="genre-skill" data-id="${esc(genre.id)}" title="显示该题材专属的故事框架写法参考技能提示词">📐 写作技能提示词</button>
-        <button class="nv-btn nv-btn-sm" data-act="genre-blueprint" data-id="${esc(genre.id)}">查看 AI 题材创意引擎</button>`
-          : '<span class="nv-hint">未选题材时，可先用「AI 头脑风暴创意题材规划」自动选题材、基调、角色规模并写入故事框架。</span>'}
-      </div>
-      ${genre ? `<div class="nv-hint" style="margin-top:4px">推荐基调：${esc(genre.tone || '—')}｜关键词：${esc((genre.tags || []).join('、'))}｜开篇钩子：${esc(genre.hook || '—')}</div>` : ''}
-    </div>
+    ${genreSectionHtml(f)}
 
     <div class="nv-step" style="margin-top:14px"><em>2</em>定义演员（引用模块1演员表 + 自定义角色，合计 ≤ ${num(f.cast_size, 20)} / 200）
       <span class="nv-grow"></span>
@@ -577,7 +655,7 @@ function workspaceHtml() {
       <div class="nv-card-t">
         <span class="nv-h1">${esc(n.title)}</span>
         <span class="nv-pill">${esc(n.id)}</span>
-        <span class="nv-pill">${esc(n.genre_name || '未选题材')}</span>
+        <span class="nv-pill">${esc(novelGenreLabel(n))}</span>
         <span class="nv-pill">${esc(n.tone || '')}</span>
         <span class="nv-pill">${esc(n.pov_name || '')}</span>
         ${statusBadge(n.status)}
@@ -991,6 +1069,8 @@ async function saveForm() {
         autoPov: Boolean(f.auto_pov),
         autoCast: Boolean(f.auto_cast),
         unlimitedCharacters: Boolean(f.unlimited_characters),
+        genreMode: S.genreMode || 'system',
+        customGenre: f.custom_genre || null,
       });
       await loadList();
       S.formMode = 'edit';
@@ -1010,6 +1090,8 @@ async function saveForm() {
       autoPov: Boolean(f.auto_pov),
       autoCast: Boolean(f.auto_cast),
       unlimitedCharacters: Boolean(f.unlimited_characters),
+      genreMode: S.genreMode || 'system',
+      customGenre: f.custom_genre || null,
     });
     await reloadDetail();
     await loadList();
@@ -1050,6 +1132,8 @@ async function planGenreFromForm() {
   }));
   if (!r?.genreId) return;
   S.form.genre = r.genreId;
+  S.form.custom_genre = null;
+  S.genreMode = 'system';
   const g = S.genres.find((x) => x.id === r.genreId);
   if (g?.tone) S.form.tone = g.tone;
   S.genreCat = g?.cat || S.genreCat;
@@ -1081,6 +1165,15 @@ function applyBrainstormToForm(r) {
   if (r.seasons) S.form.seasons = Math.min(99, Math.max(1, num(r.seasons, S.form.seasons)));
   if (r.frameworkIntro) S.form.framework_intro = r.frameworkIntro;
   if (r.skillPrompt) S.genreSkillPrompt = r.skillPrompt;
+  if (r.genreId) {
+    S.form.custom_genre = {
+      genreId: r.genreId, name: r.genreName || r.name, category: r.category,
+      positioning: r.reason || '', keywords: [], tone: r.tone,
+      frameworkIntro: r.frameworkIntro || '', skillPrompt: r.skillPrompt || '',
+      source: 'brainstorm',
+    };
+  }
+  S.genreMode = 'brainstorm';
   render();
 }
 
@@ -1125,10 +1218,118 @@ async function brainstormGenreFromForm() {
   if (r?.genreId) showBrainstormPreview(r);
 }
 
+// 应用「题材生成器 / AI 头脑风暴」产出的自定义题材到表单（不写库）
+function applyCustomGenre(genre, mode) {
+  if (!genre?.genreId) return;
+  S.form = collectForm();
+  S.form.genre = genre.genreId;
+  S.form.custom_genre = {
+    genreId: genre.genreId,
+    name: genre.name || genre.genreName || '',
+    category: genre.category || '',
+    positioning: genre.positioning || genre.description || '',
+    keywords: Array.isArray(genre.keywords) ? genre.keywords : [],
+    tone: genre.tone || '',
+    description: genre.description || '',
+    hook: genre.hook || '',
+    frameworkIntro: genre.frameworkIntro || '',
+    skillPrompt: genre.skillPrompt || '',
+    options: genre.options || null,
+    source: mode,
+  };
+  if (genre.tone) S.form.tone = genre.tone;
+  if (genre.frameworkIntro) S.form.framework_intro = genre.frameworkIntro;
+  if (genre.description && !String(S.form.title_description || '').trim()) S.form.title_description = genre.description;
+  S.genreMode = mode;
+  render();
+}
+
+function showGeneratedGenrePreview(r) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <div class="nv-note" style="line-height:1.8"><b>生成题材：${esc(r.name || '')}</b>（${esc(r.category || '')}）｜基调：${esc(r.tone || '—')}</div>
+    <div class="nv-hint" style="margin-top:6px">关键词：${esc((r.keywords || []).join('、') || '—')}</div>
+    ${r.positioning ? `<div class="nv-hint" style="margin-top:4px">${esc(r.positioning)}</div>` : ''}
+    <div class="nv-card" style="padding:10px;margin-top:8px">
+      <div class="nv-card-t">故事框架（会写入「故事框架介绍」）</div>
+      <div class="nv-preview" style="max-height:320px">${esc(r.frameworkIntro || '')}</div>
+    </div>
+    ${r.skillPrompt ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">题材写作技能提示词</summary><div class="nv-preview" style="max-height:220px;margin-top:6px">${esc(r.skillPrompt)}</div></details>` : ''}`;
+  const m = S.ctx.modal({ title: '🧪 题材生成结果', body: wrap, width: 800 });
+  const bar = document.createElement('div');
+  bar.className = 'nv-row';
+  bar.style.marginTop = '10px';
+  bar.innerHTML = '<button class="nv-btn nv-btn-p" data-a="ok">应用并填入表单</button><button class="nv-btn" data-a="again">重新生成</button><button class="nv-btn" data-a="no">取消</button>';
+  wrap.appendChild(bar);
+  bar.querySelector('[data-a="no"]').onclick = () => m.close();
+  bar.querySelector('[data-a="again"]').onclick = () => { m.close(); setTimeout(() => openGenreGenerator(), 0); };
+  bar.querySelector('[data-a="ok"]').onclick = () => {
+    applyCustomGenre(r, 'generator');
+    m.close();
+    toast('自定义题材、基调与故事框架已填入表单，请检查后保存', 'ok');
+  };
+}
+
+async function openGenreGenerator() {
+  if (S.busy) return;
+  let opts = S.genreOptions;
+  if (!opts) {
+    const r = await guard(async () => S.ctx.api.get('/api/novels/ai/genre-generator-options'));
+    if (!r?.options) return;
+    opts = S.genreOptions = r.options;
+  }
+  const f = S.form || {};
+  const cur = (f.custom_genre && f.custom_genre.options) || {};
+  const sel = (list, chosen) => (list || []).map((o) => `<option value="${esc(o.id)}" ${o.id === chosen ? 'selected' : ''}>${esc(o.label)}</option>`).join('');
+  const toneOptions = [...new Set([f.tone, ...(S.tones || [])].filter(Boolean))].slice(0, 100);
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <div class="nv-hint" style="line-height:1.7">选择取向，生成器会组合出一个自定义题材（不联网、不消耗额度），并给出完整 7 模块故事框架与写作技能提示词。</div>
+    <div class="nv-row" style="margin-top:10px">
+      <label class="nv-f"><span class="nv-lbl">世界背景</span><select class="nv-select" id="gg-world">${sel(opts.worlds, cur.world)}</select></label>
+      <label class="nv-f"><span class="nv-lbl">主角设定</span><select class="nv-select" id="gg-pro">${sel(opts.protagonists, cur.protagonist)}</select></label>
+      <label class="nv-f"><span class="nv-lbl">核心冲突</span><select class="nv-select" id="gg-con">${sel(opts.conflicts, cur.conflict)}</select></label>
+    </div>
+    <div class="nv-row" style="margin-top:8px">
+      <label class="nv-f"><span class="nv-lbl">叙事节奏</span><select class="nv-select" id="gg-pace">${sel(opts.paces, cur.pace)}</select></label>
+      <label class="nv-f"><span class="nv-lbl">目标受众</span><select class="nv-select" id="gg-aud">${sel(opts.audiences, cur.audience)}</select></label>
+      <label class="nv-f"><span class="nv-lbl">基调</span><select class="nv-select" id="gg-tone">${toneOptions.map((t) => `<option ${t === f.tone ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+    </div>
+    <label class="nv-f" style="margin-top:8px"><span class="nv-lbl">题材名（留空则自动生成）</span><input class="nv-input" id="gg-name" placeholder="例如：都市·重生·商战复仇" value="${esc((f.custom_genre && f.custom_genre.name) || '')}"></label>
+    <label class="nv-f" style="margin-top:8px"><span class="nv-lbl">关键词（空格/逗号分隔，可留空）</span><input class="nv-input" id="gg-keyword" placeholder="例如：豪门 商战 复仇 打脸" value="${esc((f.custom_genre && (f.custom_genre.keywords || []).join(' ')) || '')}"></label>`;
+  const m = S.ctx.modal({ title: '🧪 题材生成器', body: wrap, width: 720 });
+  const bar = document.createElement('div');
+  bar.className = 'nv-row';
+  bar.style.marginTop = '10px';
+  bar.innerHTML = '<button class="nv-btn nv-btn-a" data-a="go">生成题材</button><button class="nv-btn" data-a="no">取消</button>';
+  wrap.appendChild(bar);
+  bar.querySelector('[data-a="no"]').onclick = () => m.close();
+  bar.querySelector('[data-a="go"]').onclick = async () => {
+    const payload = {
+      world: wrap.querySelector('#gg-world').value,
+      protagonist: wrap.querySelector('#gg-pro').value,
+      conflict: wrap.querySelector('#gg-con').value,
+      pace: wrap.querySelector('#gg-pace').value,
+      audience: wrap.querySelector('#gg-aud').value,
+      tone: wrap.querySelector('#gg-tone').value,
+      name: wrap.querySelector('#gg-name').value.trim(),
+      keyword: wrap.querySelector('#gg-keyword').value.trim(),
+      targetWords: num(S.form?.target_words, 1000000),
+    };
+    const r = await guard(async () => S.ctx.api.post('/api/novels/ai/generate-genre', payload));
+    if (!r?.genreId) return;
+    m.close();
+    showGeneratedGenrePreview(r);
+  };
+}
+
 async function showGenreSkillPrompt(genreId) {
   const id = genreId || S.form?.genre;
   if (!id) { toast('请先选择题材', 'err'); return; }
-  const r = await guard(async () => S.ctx.api.get(`/api/novels/ai/genre-skill-prompt?genre=${encodeURIComponent(id)}`));
+  const cg = S.form?.custom_genre;
+  const r = (cg && cg.genreId === id && cg.skillPrompt)
+    ? { genreName: cg.name, skillPrompt: cg.skillPrompt }
+    : await guard(async () => S.ctx.api.get(`/api/novels/ai/genre-skill-prompt?genre=${encodeURIComponent(id)}`));
   if (!r?.skillPrompt) return;
   S.genreSkillPrompt = r.skillPrompt;
   const body = document.createElement('div');
@@ -1280,6 +1481,9 @@ function aiFrameworkPayload() {
     title: f.title || '',
     titleDescription: f.title_description || '',
     genre: f.genre || '',
+    genreName: (f.custom_genre && f.genre === f.custom_genre.genreId)
+      ? f.custom_genre.name
+      : (f.genre === 'custom-free' ? '自由创作（不限定题材）' : ''),
     tone: f.tone || '',
     pov: f.pov || '',
     castSize: num(f.cast_size, 20),
@@ -1913,11 +2117,35 @@ async function onClickEvent(e) {
     case 'genre': {
       S.form = collectForm();
       S.form.genre = el.dataset.id;
+      S.form.custom_genre = null;
+      S.genreMode = 'system';
       const g = S.genres.find((x) => x.id === el.dataset.id);
       if (g?.tone) S.form.tone = g.tone;
       render();
       return;
     }
+    case 'genre-mode': {
+      S.form = collectForm();
+      S.genreMode = ['system', 'generator', 'brainstorm'].includes(el.dataset.mode) ? el.dataset.mode : 'system';
+      render();
+      return;
+    }
+    case 'genre-collapse': S.genreCollapsed = !S.genreCollapsed; collectForm(); render(); return;
+    case 'genre-off': {
+      S.form = collectForm();
+      if (S.form.genre === 'custom-free') {
+        S.form.genre = S.genres[0]?.id || '';
+        const g = S.genres.find((x) => x.id === S.form.genre);
+        if (g?.tone) S.form.tone = g.tone;
+      } else {
+        S.form.genre = 'custom-free';
+        S.form.custom_genre = null;
+      }
+      S.genreMode = 'system';
+      render();
+      return;
+    }
+    case 'open-genre-generator': await openGenreGenerator(); return;
     case 'scale': S.form = collectForm(); S.form.target_words = num(el.dataset.min, 1000000); render(); return;
     case 'load-actors': S.actorsLoaded = false; await loadActors(); render(); return;
     case 'pick-actor': {

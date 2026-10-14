@@ -27,8 +27,12 @@ export function ensureNovelSettingsSchema() {
     max_characters INTEGER NOT NULL DEFAULT 20,
     style_policy TEXT NOT NULL DEFAULT 'plot-driven',
     auto_create INTEGER NOT NULL DEFAULT 1,
+    genre_mode TEXT NOT NULL DEFAULT 'system',
+    custom_genre TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL
   )`);
+  ensureColumn('novel_ai_settings', 'genre_mode', "genre_mode TEXT NOT NULL DEFAULT 'system'");
+  ensureColumn('novel_ai_settings', 'custom_genre', "custom_genre TEXT NOT NULL DEFAULT ''");
   run(`CREATE TABLE IF NOT EXISTS novel_character_links (
     novel_id TEXT NOT NULL,
     actor_id TEXT NOT NULL,
@@ -44,6 +48,11 @@ export function ensureNovelSettingsSchema() {
   )`);
   run('CREATE INDEX IF NOT EXISTS idx_novel_character_links_novel ON novel_character_links(novel_id, name_key)');
   schemaReady = true;
+}
+
+function ensureColumn(table, column, ddl) {
+  const cols = all(`PRAGMA table_info(${table})`);
+  if (!cols.some((c) => c.name === column)) run(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
 }
 
 function novelOf(novelId) {
@@ -65,7 +74,14 @@ function defaultsFromMeta(novel) {
     maxCharacters: Math.max(1, Math.min(200, Number(free.maxCharacters) || Number(novel.cast_size) || 20)),
     stylePolicy: TEXT(free.stylePolicy, 40) || 'plot-driven',
     autoCreate: free.autoCreate !== false,
+    genreMode: normalizeGenreMode(meta.genreMode),
+    customGenre: meta.customGenre && typeof meta.customGenre === 'object' ? meta.customGenre : null,
   };
+}
+
+export function normalizeGenreMode(value) {
+  const mode = TEXT(value, 20).toLowerCase();
+  return ['system', 'generator', 'brainstorm', 'off'].includes(mode) ? mode : 'system';
 }
 
 export function getNovelAiSettings(novelId) {
@@ -78,11 +94,12 @@ export function getNovelAiSettings(novelId) {
     run(
       `INSERT OR IGNORE INTO novel_ai_settings(
         novel_id, title_description, auto_pov, auto_cast, unlimited_characters,
-        character_free_enabled, max_characters, style_policy, auto_create, updated_at
-      ) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+        character_free_enabled, max_characters, style_policy, auto_create, genre_mode, custom_genre, updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
       d.novelId, d.titleDescription, d.autoPov ? 1 : 0, d.autoCast ? 1 : 0,
       d.unlimitedCharacters ? 1 : 0, d.characterFreeEnabled ? 1 : 0,
-      d.maxCharacters, d.stylePolicy, d.autoCreate ? 1 : 0, now,
+      d.maxCharacters, d.stylePolicy, d.autoCreate ? 1 : 0,
+      d.genreMode, d.customGenre ? JSON.stringify(d.customGenre) : '', now,
     );
     row = get('SELECT * FROM novel_ai_settings WHERE novel_id = ?', novelId);
   }
@@ -97,6 +114,8 @@ export function getNovelAiSettings(novelId) {
     maxCharacters: Number(row.max_characters) || 20,
     stylePolicy: row.style_policy || 'plot-driven',
     autoCreate: Boolean(row.auto_create),
+    genreMode: normalizeGenreMode(row.genre_mode),
+    customGenre: safeJson(row.custom_genre, null),
     updatedAt: row.updated_at || '',
   };
 }
@@ -114,6 +133,8 @@ export function updateNovelAiSettings(novelId, patch = {}) {
     maxCharacters: 'max_characters',
     stylePolicy: 'style_policy',
     autoCreate: 'auto_create',
+    genreMode: 'genre_mode',
+    customGenre: 'custom_genre',
   };
   const sets = [];
   const args = [];
@@ -124,6 +145,8 @@ export function updateNovelAiSettings(novelId, patch = {}) {
     if (key === 'maxCharacters') value = Math.max(1, Math.min(200, Number(value) || 20));
     if (key === 'titleDescription') value = TEXT(value, 500);
     if (key === 'stylePolicy') value = TEXT(value, 40) || 'plot-driven';
+    if (key === 'genreMode') value = normalizeGenreMode(value);
+    if (key === 'customGenre') value = value && typeof value === 'object' ? JSON.stringify(value) : '';
     sets.push(`${column} = ?`);
     args.push(value);
   }

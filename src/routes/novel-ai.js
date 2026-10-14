@@ -10,6 +10,7 @@ import { buildNovelAssets } from '../novel-assets.js';
 import { characterFreeMode, updateCharacterFreeMode, discoverPlotCharacters, autoArchivePlotCharacters } from '../novel-characters.js';
 import { buildGenreCreativeBlueprint, listGenreCreativeBlueprints, buildGenreSkillPrompt } from '../genre-frameworks.js';
 import { brainstormGenre } from '../novel-brainstorm.js';
+import { GENRE_GENERATOR_OPTIONS, generateCustomGenre } from '../novel-genre-generator.js';
 import { listCreativeOptions, planGenreFromTitle, getNovelCreativeOptions, updateNovelCreativeOptions } from '../novel-creative-options.js';
 import { ensureNovelSettingsSchema, getNovelAiSettings, updateNovelAiSettings, listNovelCharacterArchive } from '../novel-settings.js';
 import { enqueue } from '../jobs.js';
@@ -61,6 +62,20 @@ export function registerNovelAiRoutes(app) {
       ctx.json(await brainstormGenre(body));
     } catch (err) {
       throw badRequest(err.message || 'AI 头脑风暴创意题材规划失败');
+    }
+  });
+
+  app.get('/api/novels/ai/genre-generator-options', async (ctx) => {
+    try { ctx.json({ ok: true, options: GENRE_GENERATOR_OPTIONS }); }
+    catch (err) { throw badRequest(err.message || '读取题材生成器选项失败'); }
+  });
+
+  app.post('/api/novels/ai/generate-genre', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      ctx.json(generateCustomGenre(body));
+    } catch (err) {
+      throw badRequest(err.message || '题材生成器生成失败');
     }
   });
 

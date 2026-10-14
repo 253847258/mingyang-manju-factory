@@ -18,6 +18,7 @@ const { nowISO } = await import('../src/util.js');
 const { GENRES, genreById } = await import('../src/data/genres.js');
 const { buildGenreSkillPrompt } = await import('../src/genre-frameworks.js');
 const { brainstormGenre, buildBrainstormPrompt } = await import('../src/novel-brainstorm.js');
+const { generateCustomGenre, GENRE_GENERATOR_OPTIONS } = await import('../src/novel-genre-generator.js');
 const { buildFrameworkPrompt, commitCharacters } = await import('../src/novel-ai.js');
 const { createApp, createServer } = await import('../src/http.js');
 const { registerNovelAiRoutes } = await import('../src/routes/novel-ai.js');
@@ -126,6 +127,45 @@ try {
     const res = await fetch(`${base}/api/novels/ai/genre-skill-prompt`);
     assert.equal(res.status, 400);
     return '400';
+  });
+
+  await check('GET /genre-generator-options 返回选项集', async () => {
+    const data = await (await fetch(`${base}/api/novels/ai/genre-generator-options`)).json();
+    assert.ok(data.options.worlds.length >= 5);
+    assert.ok(data.options.protagonists.length >= 5);
+    assert.ok(data.options.conflicts.length >= 5);
+    return `${data.options.worlds.length} 世界 / ${data.options.conflicts.length} 冲突`;
+  });
+  await check('POST /generate-genre 生成自定义题材', async () => {
+    const res = await fetch(`${base}/api/novels/ai/generate-genre`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ world: 'future', protagonist: 'awaken', conflict: 'conspiracy', pace: 'twist', audience: 'all', tone: '悬疑烧脑', keyword: '深空 阴谋' }),
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.match(data.genreId, /^custom-/);
+    assert.ok(data.frameworkIntro.includes('模块 7'));
+    assert.ok(data.skillPrompt.includes('技能提示词'));
+    return `${data.name}（${data.keywords.length} 关键词）`;
+  });
+  await check('题材生成器对未知选项回退到默认且不报错', async () => {
+    const g = generateCustomGenre({ world: 'nope', protagonist: 'nope', conflict: 'nope' });
+    assert.match(g.genreId, /^custom-/);
+    assert.equal(g.name, `${GENRE_GENERATOR_OPTIONS.worlds[0].label}·${GENRE_GENERATOR_OPTIONS.protagonists[0].label}·${GENRE_GENERATOR_OPTIONS.conflicts[0].label}`);
+    return g.name;
+  });
+  await check('creative-options 持久化 genreMode 与 customGenre', async () => {
+    const g = generateCustomGenre({ world: 'ancient', protagonist: 'hidden', conflict: 'conspiracy', tone: '史诗厚重' });
+    const put = await fetch(`${base}/api/novels/N-BRAIN/creative-options`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ genreMode: 'generator', customGenre: { genreId: g.genreId, name: g.name, keywords: g.keywords, skillPrompt: g.skillPrompt } }),
+    });
+    assert.equal(put.status, 200);
+    const got = await (await fetch(`${base}/api/novels/N-BRAIN/creative-options`)).json();
+    assert.equal(got.genreMode, 'generator');
+    assert.equal(got.customGenre.name, g.name);
+    assert.ok(got.customGenre.skillPrompt.includes('技能提示词'));
+    return `${got.genreMode} / ${got.customGenre.name}`;
   });
 
   console.log('\n=== 5. 一键写作后台任务 ===');
