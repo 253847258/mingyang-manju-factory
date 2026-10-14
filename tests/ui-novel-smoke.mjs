@@ -128,8 +128,12 @@ try {
   await page.waitForTimeout(200);
 
   // 黄金五行八卦旋转飞轮：计数显示 / 归零隐藏
+  await page.waitForLoadState('networkidle').catch(() => {});
   const wheel = await page.evaluate(async () => {
     const m = await import('/lib/compute-wheel.js');
+    // 等环境里的零散请求收尾，拿到干净的基线（计数归零）
+    for (let i = 0; i < 40 && m.computeWheel.active; i += 1) await new Promise((r) => setTimeout(r, 100));
+    const baseline = m.computeWheel.active;
     m.computeWheel.begin('单元测试');
     m.computeWheel.begin('单元测试');
     await new Promise((r) => setTimeout(r, 700));
@@ -139,12 +143,12 @@ try {
     m.computeWheel.end();
     const stillShown = !!document.querySelector('.cw-overlay.cw-on');
     m.computeWheel.end();
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 600));
     const hidden = !document.querySelector('.cw-overlay.cw-on');
-    return { shown, hasTrigrams, hasElements, stillShown, hidden };
+    return { baseline, shown, hasTrigrams, hasElements, stillShown, hidden };
   });
   ok('五行八卦飞轮：8 卦 + 五行', wheel.hasTrigrams && wheel.hasElements);
-  ok('五行八卦飞轮：计算中自动显示、归零后隐藏', wheel.shown && wheel.stillShown && wheel.hidden);
+  ok('五行八卦飞轮：计算中自动显示、归零后隐藏', wheel.baseline === false && wheel.shown && wheel.stillShown && wheel.hidden, `baseline=${wheel.baseline}`);
 
   ok('无浏览器错误', errors.length === 0, errors.join(' | '));
 

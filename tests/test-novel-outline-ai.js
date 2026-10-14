@@ -264,6 +264,9 @@ await check('enrichChapterHandoff 用相邻摘要推导章首/章末并成环、
   assert.ok(r.chapters[1].start_state.includes(prevEnd));
   assert.match(r.chapters[2].end_state, /本章收束/);
   assert.ok(r.chapters[1].handoff_in && r.chapters[1].handoff_out);
+  // 前缀不叠加（曾出现「承接上一章：推进到下一章：…」）
+  assert.ok(r.chapters.every((c) => !/承接上一章[:：]\s*推进到下一章/.test(c.start_state)));
+  assert.ok(r.chapters.every((c) => !/承接上一章[:：]\s*承接上一章/.test(c.start_state)));
   const again = OAI.enrichChapterHandoff({}, { chapters: r.chapters });
   assert.equal(again.filled, 0);
   return `filled=${r.filled}, 二次=${again.filled}`;

@@ -340,20 +340,22 @@ export function enrichChapterHandoff(novel, sections = {}) {
   const list = Array.isArray(sections.chapters) ? sections.chapters : [];
   if (!list.length) return { chapters: list, filled: 0, total: 0 };
   const chapters = list.map((c) => ({ ...(c && typeof c === 'object' ? c : {}) }));
+  // 去掉本函数自己加的前缀，避免多章串联后出现「承接上一章：推进到下一章：…」叠词
+  const stripLead = (v) => TEXT(v, 400).replace(/^(承接上一章|推进到下一章|开篇承接|本章收束)\s*[:：]\s*/, '');
   let filled = 0;
   for (let i = 0; i < chapters.length; i += 1) {
     const c = chapters[i];
     const prev = chapters[i - 1];
     const next = chapters[i + 1];
     if (!TEXT(c.start_state, 1000)) {
-      const src = prev ? (prev.end_state || prev.cliffhanger || prev.hook || prev.summary) : '';
+      const src = prev ? stripLead(prev.end_state || prev.cliffhanger || prev.hook || prev.summary) : '';
       c.start_state = src
         ? `承接上一章：${TEXT(src, 200)}`
         : `开篇承接：${TEXT(c.summary || c.title, 180) || '从主角当前处境进入本章'}`;
       filled += 1;
     }
     if (!TEXT(c.end_state, 1000)) {
-      const src = next ? (next.start_state || next.summary || next.title) : '';
+      const src = next ? stripLead(next.start_state || next.summary || next.title) : '';
       c.end_state = src
         ? `推进到下一章：${TEXT(src, 200)}`
         : `本章收束：${TEXT(c.cliffhanger || c.hook || c.summary, 180) || '把主线推进到下一阶段'}`;
@@ -479,6 +481,7 @@ function buildChapterExpandPrompt(novel = {}, sections = {}, idx, current = '', 
     `当前章节大纲：\n${TEXT(current, OUTLINE_AI_CHAPTER_MAX_CHARS)}`,
     instruction ? `额外要求：${TEXT(instruction, 500)}` : '',
     '扩写要求：保留原剧情事实，不另起炉灶；按场景顺序展开，补充冲突动作、人物选择、信息差、因果推进、情绪变化和章末钩子。',
+    `篇幅要求（硬性）：至少 4 个场景，每个场景 600-900 字；总字数不得少于 ${OUTLINE_AI_CHAPTER_MIN_CHARS + 300} 字。不足请继续补充场景细节与对话，不要用概括句凑数，不要提前结束。`,
     `只输出 JSON：{"summary":"${OUTLINE_AI_CHAPTER_MIN_CHARS}-${OUTLINE_AI_CHAPTER_MAX_CHARS} 个中文字符的完整大纲"}`,
   ].filter(Boolean).join('\n');
 }
@@ -553,19 +556,30 @@ export async function generateChapterPlan(novel, sections, idx, { instruction = 
     const out = await chatJSON({ system: AI_SYSTEM, prompt, temperature: 0.75, maxTokens: 8000 });
     let value = normalizeChapterPlan(out?.data, c, n);
     if (!value.title || !value.summary) throw new Error('模型返回的章节内容不完整');
-    if (value.summary.length < OUTLINE_AI_CHAPTER_MIN_CHARS) {
+    // 目标 2500-3500 字；首次不足时最多再扩写 2 次（实测单次扩写有时仍停在 ~1900 字）
+    let attempts = 0;
+    while (value.summary.length < OUTLINE_AI_CHAPTER_MIN_CHARS && attempts < 2) {
+      attempts += 1;
       try {
+        const hint = attempts > 1
+          ? `${instruction} 当前只有 ${value.summary.length} 字，必须扩写到 ${OUTLINE_AI_CHAPTER_MIN_CHARS}-${OUTLINE_AI_CHAPTER_MAX_CHARS} 字，按场景顺序分段展开，不得省略情节与章末钩子。`
+          : instruction;
         const expanded = await chatJSON({
           system: AI_SYSTEM,
-          prompt: buildChapterExpandPrompt(novel, sections, n, value.summary, instruction),
-          temperature: 0.55,
-          maxTokens: 8000,
+          prompt: buildChapterExpandPrompt(novel, sections, n, value.summary, hint),
+          temperature: attempts > 1 ? 0.5 : 0.55,
+          maxTokens: 12000,
         });
-        const longSummary = MULTI(expanded?.data?.summary, OUTLINE_AI_CHAPTER_MAX_CHARS);
+        const rawExpanded = expanded?.data ?? expanded?.json ?? '';
+        const expandedText = typeof rawExpanded === 'string'
+          ? rawExpanded
+          : (rawExpanded?.summary || rawExpanded?.text || rawExpanded?.content || rawExpanded?.chapter?.summary || '');
+        const longSummary = MULTI(expandedText, OUTLINE_AI_CHAPTER_MAX_CHARS);
         if (longSummary.length > value.summary.length) value = { ...value, summary: longSummary };
         calls += 1;
       } catch (err) {
-        warnings.push(`第 ${n} 章自动扩写失败，保留首次生成内容：${err.message}`);
+        warnings.push(`第 ${n} 章自动扩写失败（第 ${attempts} 次），保留当前内容：${err.message}`);
+        break;
       }
     }
     const len = value.summary.length;
