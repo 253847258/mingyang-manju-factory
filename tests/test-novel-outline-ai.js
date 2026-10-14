@@ -293,6 +293,72 @@ await check('POST /outline/ai/enrich-handoff 补全并落库为新版本', async
   return `filled=${json.filled} v${json.saved.version}`;
 });
 
+console.log('\n=== 6. 多线程统筹规划 ===');
+await check('mapLimit 并发不超过上限且顺序稳定', async () => {
+  let active = 0; let peak = 0;
+  const out = await OAI.mapLimit([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
+    active += 1; peak = Math.max(peak, active);
+    await new Promise((r) => setTimeout(r, 15));
+    active -= 1;
+    return n * 2;
+  });
+  assert.deepEqual(out, [2, 4, 6, 8, 10, 12, 14]);
+  assert.ok(peak <= 3 && peak >= 2, `peak=${peak}`);
+  return `peak=${peak}`;
+});
+await check('fillSectionsParallel 并发补齐全部分节（mock）', async () => {
+  const novel = OAI.novelOf('N-OAI');
+  const r = await OAI.fillSectionsParallel(novel, { chapters: [] }, { concurrency: 4 });
+  assert.ok(r.results.length >= 13, `results=${r.results.length}`);
+  assert.equal(OAI.missingSectionKeys(r.sections, OAI.OUTLINE_AI_DEFAULT_KEYS).length, 0);
+  assert.ok(r.concurrency >= 2);
+  // 定调分节（locations/characters/framework/logline/worldview）先出，其余再并发引用
+  const canon = ['locations', 'characters', 'framework', 'logline', 'worldview'];
+  assert.ok(r.results.slice(0, 5).every((x) => canon.includes(x.key)), r.results.slice(0, 5).map((x) => x.key).join(','));
+  assert.equal(r.results[0].key, 'locations');
+  return `sections=${r.results.length} concurrency=${r.concurrency}`;
+});
+await check('planChaptersParallel 并发规划章节并按 idx 归位（mock）', async () => {
+  const novel = OAI.novelOf('N-OAI');
+  const secs = OAI.loadSections('N-OAI');
+  const r = await OAI.planChaptersParallel(novel, secs, { from: 1, to: 3, onlyEmpty: false, concurrency: 3 });
+  assert.equal(r.results.length, 3);
+  assert.deepEqual(r.results.map((x) => x.idx), [1, 2, 3]);
+  assert.equal(r.sections.chapters.length, 12);
+  assert.equal(r.concurrency, 3);
+  return `concurrency=${r.concurrency}`;
+});
+await check('orchestrateOutline 产出统筹报告且章节成环', async () => {
+  const novel = OAI.novelOf('N-OAI');
+  const r = await OAI.orchestrateOutline(novel, { chapters: [] }, { concurrency: 3, sectionsConcurrency: 4 });
+  const names = r.report.steps.map((s) => s.name);
+  assert.ok(names.includes('sections') && names.includes('chapters') && names.includes('merge'), names.join(','));
+  assert.ok(r.sections.chapters.length > 0);
+  assert.ok(r.sections.chapters.every((c) => String(c.start_state || '').trim() && String(c.end_state || '').trim()));
+  return `steps=${names.join('→')} chapters=${r.sections.chapters.length}`;
+});
+await check('POST /outline/ai/orchestrate-job 后台完成并落库', async () => {
+  const started = await (await fetch(`${base}/api/novels/N-OAI/outline/ai/orchestrate-job`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ concurrency: 3, sectionsConcurrency: 4 }),
+  })).json();
+  assert.match(started.jobId, /^JOB-/);
+  assert.equal(started.concurrency, 3);
+  const { getJob } = await import('../src/jobs.js');
+  let job = null;
+  for (let i = 0; i < 150; i += 1) {
+    job = getJob(started.jobId);
+    if (['done', 'error', 'canceled'].includes(job.status)) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  assert.equal(job.status, 'done', job.error || '');
+  assert.ok(job.result.saved?.version > 0);
+  const sec = OAI.loadSections('N-OAI');
+  assert.ok(sec.chapters.length > 0);
+  assert.ok(sec.chapters.every((c) => String(c.start_state || '').trim() && String(c.end_state || '').trim()));
+  return `v${job.result.saved.version} calls=${job.result.calls}`;
+});
+
 if (server.closeAllConnections) server.closeAllConnections();
 await new Promise((resolve) => server.close(resolve));
 console.log(`\n=== 结果：${pass} 通过 / ${fail} 失败 ===`);

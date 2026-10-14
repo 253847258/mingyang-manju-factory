@@ -744,6 +744,7 @@ function outlineHtml() {
     return `<div class="nv-card"><div class="nv-empty">还没有大纲。<br>点 <b>✨ AI 自动规划生成</b>，自动规划章节大纲与每一节内容：故事走向 · 故事框架逻辑 · 全篇因果链 · 伏笔表（埋设章→回收章）· 宏大时间线 · 地点档案（L-0001）· 人物ID出场规划 · 反转清单 · 节奏卡点 · 章末钩子 · 跨季章节时间回路。</div>
       <div class="nv-row" style="justify-content:center;margin-top:10px">
         <button class="nv-btn nv-btn-a" data-act="outline-ai-plan">✨ AI 自动规划生成</button>
+        <button class="nv-btn nv-btn-a" data-act="outline-orchestrate" title="并发补齐分节 + 并发规划章节，最后统一做章首/章末成环与伏笔收口">⚡ 多线程统筹规划</button>
         <button class="nv-btn" data-act="outline-gen">仅生成章节大纲</button>
       </div>
       <div class="nv-hint" style="text-align:center;margin-top:8px">LLM 未配置时可在「设置」页把 provider 切到 mock（离线模板）先看结构。</div></div>`;
@@ -758,6 +759,7 @@ function outlineHtml() {
       ${meta.mode === 'mock' ? badge('离线模板内容', 'warn') : ''}
       <span class="nv-grow"></span>
       <button class="nv-btn nv-btn-a nv-btn-sm" data-act="outline-ai-plan" title="自动规划缺失的章节大纲，并逐节补齐所有空缺内容">✨ AI 自动规划生成</button>
+      <button class="nv-btn nv-btn-a nv-btn-sm" data-act="outline-orchestrate" title="多线程统筹：并行补齐分节 + 并行规划章节，再统一成环与收口">⚡ 多线程统筹规划</button>
       <button class="nv-btn nv-btn-sm" data-act="outline-optimize">✎ 按指令优化</button>
       <button class="nv-btn nv-btn-sm" data-act="outline-append" title="超长篇分卷/分批继续：保留已有章节大纲，从第 N 章往后继续规划">⤵ 续规划章节</button>
       <button class="nv-btn nv-btn-sm" data-act="outline-gen">↻ 重新生成</button>
@@ -1727,6 +1729,28 @@ function showOutlineAiReport(result) {
   bar.querySelector('[data-act="modal-close"]').onclick = () => m.close();
 }
 
+// 多线程统筹规划：并发补齐分节 + 并发规划章节，再统一成环与伏笔收口
+async function startOrchestrateOutline() {
+  if (S.busy) return;
+  const snap = outlineAiSnapshot();
+  const planned = plannedChapterCount();
+  const sectionTasks = snap.fillable.length;
+  const chapterTasks = Math.min(20, snap.chapterStats.missing.length || planned);
+  if (!sectionTasks && !chapterTasks) {
+    toast('大纲与章节都已完整；如需重做，请用对应分节/章节的 AI 规划按钮', 'info');
+    return;
+  }
+  if (!(await S.ctx.confirm(`多线程统筹规划：并发补齐 ${sectionTasks} 个空缺分节 + 并发规划 ${chapterTasks} 章（全书约 ${planned} 章），最后统一做章首/章末成环与伏笔收口。\n预计 LLM 调用约 ${sectionTasks + chapterTasks} 次，任务进入后台队列。是否继续？`))) return;
+  const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/orchestrate-job`, {
+    concurrency: 3,
+    sectionsConcurrency: 4,
+    instruction: '多线程统筹：各分节与各章节保持世界观、主线因果、人物 ID、地点 ID、伏笔埋设与回收一致。',
+  }));
+  if (!r?.jobId) return;
+  S.tab = 'outline';
+  watchAiJob(r.jobId, `多线程统筹规划（分节并发 ${r.sectionsConcurrency} / 章节并发 ${r.concurrency}）`);
+}
+
 function startOutlineAiPlan() {
   const snap = outlineAiSnapshot();
   if (!snap.chaptersEmpty && !snap.chaptersIncomplete && !snap.fillable.length) {
@@ -2226,6 +2250,7 @@ async function onClickEvent(e) {
     case 'tab': S.tab = el.dataset.tab; render(); return;
     case 'outline-gen': await startOutlineGen(); return;
     case 'outline-ai-plan': startOutlineAiPlan(); return;
+    case 'outline-orchestrate': await startOrchestrateOutline(); return;
     case 'outline-ai-chapters': openChapterAiPlan(); return;
     case 'outline-ai-chapters-all': rewriteAllChapterPlans(); return;
     case 'outline-ai-chapter': openChapterAiPlan({ from: idx, to: idx, onlyEmptyDefault: false }); return;

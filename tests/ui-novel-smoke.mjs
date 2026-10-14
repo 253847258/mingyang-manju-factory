@@ -120,6 +120,9 @@ try {
   await page.locator('[data-act="save-form"]').first().click();
   await page.waitForTimeout(700);
   ok('创建项目后进入工作区', await page.locator('[data-act="outline-gen"]').count() >= 1);
+  await page.locator('[data-act="tab"][data-tab="outline"]').first().click();
+  await page.waitForTimeout(250);
+  ok('多线程统筹规划入口', await page.locator('[data-act="outline-orchestrate"]').count() >= 1);
   await page.locator('[data-act="outline-gen"]').first().click();
   await page.locator('.overlay .modal .m-body').first().waitFor({ timeout: 6000 });
   const robustText = await page.locator('.overlay .modal .m-body').first().innerText();

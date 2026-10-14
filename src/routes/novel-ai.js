@@ -4,7 +4,7 @@ import { badRequest } from '../http.js';
 import { generateFrameworkProposal, commitCharacters } from '../novel-ai.js';
 import {
   outlineAiStatus, loadSections, novelOf, fillSections, generateSection, planChapters, saveOutlineVersion,
-  enrichChapterHandoff,
+  enrichChapterHandoff, orchestrateOutline,
 } from '../novel-outline-ai.js';
 import { writeLongChapter } from '../novel-writing.js';
 import { buildNovelAssets } from '../novel-assets.js';
@@ -362,6 +362,59 @@ export function registerNovelAiRoutes(app) {
         saved,
       });
     } catch (err) { throw badRequest(err.message || 'AI 规划指定章节失败'); }
+  });
+
+  // 多线程统筹规划：并发补齐分节 + 并发规划章节 → 确定性合并（章首/章末成环、伏笔收口）
+  app.post('/api/novels/:id/outline/ai/orchestrate-job', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      const novelId = param(ctx, 'id');
+      novelOf(novelId);
+      const concurrency = Math.min(8, Math.max(1, Number(body.concurrency) || 3));
+      const sectionsConcurrency = Math.min(8, Math.max(1, Number(body.sectionsConcurrency) || 4));
+      const st = outlineAiStatus(novelId);
+      const total = Math.max(1, (st.fillable?.length || 0) + (st.chapterStats?.missing?.length || 0) + 1);
+      const jobId = enqueue({
+        type: 'novel_ai',
+        title: `多线程统筹规划（分节并发 ${sectionsConcurrency} / 章节并发 ${concurrency}）`,
+        total,
+        payload: { action: 'orchestrate', novelId, concurrency, sectionsConcurrency },
+        handler: async (job) => {
+          const novel = novelOf(novelId);
+          const sections = loadSections(novelId);
+          let lastSteps = 0;
+          const r = await orchestrateOutline(novel, sections, {
+            instruction: String(body.instruction || ''),
+            concurrency,
+            sectionsConcurrency,
+            chapterFrom: body.from,
+            chapterTo: body.to,
+            onlyEmptySections: body.onlyEmptySections !== false,
+            onlyEmptyChapters: body.onlyEmptyChapters !== false,
+            maxChapters: body.maxChapters,
+            onProgress: (rep) => {
+              const done = rep.steps.reduce((a, s) => a + (Number(s.done) || 0) + (Number(s.planned) || 0), 0);
+              job.step(Math.min(Math.max(done, 1), total), total);
+              if (rep.steps.length !== lastSteps) {
+                lastSteps = rep.steps.length;
+                job.log(`统筹步骤：${rep.steps.map((s) => s.name).join(' → ')}`);
+              }
+            },
+          });
+          const saved = saveOutlineVersion(novelId, r.sections, { source: 'job:orchestrate', note: `分节并发 ${sectionsConcurrency} / 章节并发 ${concurrency}` });
+          job.step(total, total);
+          return {
+            saved,
+            calls: r.report.calls,
+            elapsedMs: r.elapsedMs,
+            report: r.report,
+            chapters: Array.isArray(r.sections.chapters) ? r.sections.chapters.length : 0,
+            chapterResults: r.chapterResults,
+          };
+        },
+      });
+      ctx.json({ ok: true, jobId, total, concurrency, sectionsConcurrency });
+    } catch (err) { throw badRequest(err.message || '创建多线程统筹规划任务失败'); }
   });
 
   // 单次整份大纲只产出短摘要；这里为零成本的确定性补全「章首/章末」，让头尾能衔接。

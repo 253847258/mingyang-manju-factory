@@ -12,7 +12,7 @@
 
 import fs from 'node:fs';
 import { all, get, run, resolveAsset } from './db.js';
-import { nowISO, rid } from './util.js';
+import { nowISO, rid, monoNow, elapsedMsSince } from './util.js';
 import { chatJSON, llmStatus } from './llm.js';
 import { syncChapterSkeletons } from './modules/novel.js';
 import { buildNovelAssets, assetPromptBlock } from './novel-assets.js';
@@ -643,6 +643,148 @@ export async function planChapters(novel, sections, {
     from: start,
     to: end,
     stats: chapterPlanStats({ ...sections, chapters }, novel),
+  };
+}
+
+// 并发上限映射：并发跑同一个 worker，结果顺序与输入一致。
+export function mapLimit(items, limit, worker) {
+  const list = Array.from(items || []);
+  if (!list.length) return Promise.resolve([]);
+  const size = Math.max(1, Math.min(Number(limit) || 1, list.length));
+  const out = new Array(list.length);
+  let cursor = 0;
+  const run = async () => {
+    for (;;) {
+      const i = cursor;
+      cursor += 1;
+      if (i >= list.length) return;
+      out[i] = await worker(list[i], i);
+    }
+  };
+  return Promise.all(Array.from({ length: size }, run)).then(() => out);
+}
+
+// 「定调」分节：先串行产出这些，作为全书共享词汇表（人物名/编号、地点 ID、核心冲突），
+// 其余分节再并发引用，避免各节并行时各起一套人名与设定（实测会出现同名不同角色）。
+const OUTLINE_CANON_KEYS = ['locations', 'characters', 'framework', 'logline', 'worldview'];
+
+// 多线程逐节补齐：先「定调」（locations 铸造 L-xxxx → characters 定人物编号与姓名 →
+// framework/logline/worldview 定核心冲突与世界观），其余分节再并发引用同一套词汇表。
+export async function fillSectionsParallel(novel, sections, {
+  keys = null, instruction = '', onlyEmpty = true, concurrency = 4, maxCalls = 24,
+} = {}) {
+  const wanted = (Array.isArray(keys) && keys.length ? keys : OUTLINE_AI_DEFAULT_KEYS).filter((k) => SPEC_BY_KEY.has(k));
+  const targets = onlyEmpty ? wanted.filter((k) => isEmptySection(k, sections[k])) : wanted;
+  const out = { ...sections };
+  const warnings = [];
+  const results = [];
+  let calls = 0;
+  if (!targets.length) return { sections: out, results, warnings, calls, requested: 0, concurrency: 0 };
+  const push = (r) => {
+    out[r.key] = r.value;
+    calls += r.calls;
+    results.push({ key: r.key, label: r.label, mocked: !!r.mocked, model: r.model || '', error: r.error || '' });
+  };
+  // 第 1 波：定调（locations 先铸造 ID，其余定调分节随后并发）
+  const canon = targets.filter((k) => OUTLINE_CANON_KEYS.includes(k));
+  const first = ['locations', ...canon.filter((k) => k !== 'locations')];
+  for (const key of first) {
+    if (calls >= maxCalls) break;
+    const r = await generateSection(novel, out, key, { instruction, warnings });
+    push(r);
+  }
+  // 第 2 波：其余分节并发
+  const rest = targets.filter((k) => !first.includes(k));
+  const limited = rest.slice(0, Math.max(0, maxCalls - calls));
+  if (limited.length < rest.length) warnings.push(`已达到单次 ${maxCalls} 次模型调用上限，剩余分节未生成`);
+  const done = await mapLimit(limited, concurrency, (key) => generateSection(novel, out, key, { instruction, warnings }));
+  for (const r of done) push(r);
+  return { sections: out, results, warnings, calls, requested: targets.length, concurrency: Math.max(1, Math.min(Number(concurrency) || 1, limited.length || 1)) };
+}
+
+// 多线程逐章规划：章节用同一份骨架快照并发推演，最后按 idx 归位。
+export async function planChaptersParallel(novel, sections, {
+  from = 1, to = null, onlyEmpty = true, instruction = '', concurrency = 3, maxChapters = 20,
+} = {}) {
+  const ctx = contextOf(novel, sections);
+  const expected = ctx.chapterMax;
+  const start = Math.max(1, INT(from) || 1);
+  const end = Math.min(expected, INT(to) || expected);
+  if (start > end || start > expected) throw new Error(`章节范围无效：${start}-${end}，当前总章数为 ${expected}`);
+  const chapters = ensureChapterSlots(sections, novel, ctx);
+  const range = [];
+  for (let idx = start; idx <= end; idx += 1) range.push(idx);
+  const targets = onlyEmpty ? range.filter((idx) => !chapterPlanComplete(chapters.find((x) => INT(x.idx) === idx))) : range;
+  const limited = targets.slice(0, Math.max(1, Number(maxChapters) || 20));
+  const warnings = [];
+  const results = [];
+  let calls = 0;
+  const planned = await mapLimit(limited, concurrency, (idx) => generateChapterPlan(novel, { ...sections, chapters }, idx, { instruction, warnings, ctx }));
+  for (const r of planned) {
+    const at = chapters.findIndex((x) => INT(x.idx) === r.idx);
+    if (at >= 0) chapters[at] = r.value;
+    calls += r.calls;
+    results.push({ idx: r.idx, title: r.value.title, length: r.value.summary.length, mocked: !!r.mocked, model: r.model || '', error: r.error || '' });
+  }
+  results.sort((a, b) => a.idx - b.idx);
+  return {
+    sections: { ...sections, chapters },
+    results,
+    warnings,
+    calls,
+    requested: limited.length,
+    skipped: Math.max(0, targets.length - limited.length),
+    from: start,
+    to: end,
+    concurrency: Math.max(1, Math.min(Number(concurrency) || 1, limited.length || 1)),
+    stats: chapterPlanStats({ ...sections, chapters }, novel),
+  };
+}
+
+// 多线程统筹规划：并行补齐分节 + 并行规划章节 → 确定性「统筹」合并
+// （章首/章末成环、伏笔回收章收口），保证并发结果彼此自洽。
+export async function orchestrateOutline(novel, sections, {
+  instruction = '', concurrency = 3, sectionsConcurrency = 4,
+  chapterFrom = 1, chapterTo = null, onlyEmptySections = true, onlyEmptyChapters = true,
+  maxChapters = 20, onProgress = null,
+} = {}) {
+  const started = monoNow();
+  const report = { concurrency, sectionsConcurrency, steps: [], calls: 0, warnings: [] };
+  const mark = (name, extra = {}) => {
+    report.steps.push({ name, at: elapsedMsSince(started), ...extra });
+    try { onProgress?.(report); } catch { /* ignore */ }
+  };
+
+  const fill = await fillSectionsParallel(novel, sections, {
+    instruction, onlyEmpty: onlyEmptySections, concurrency: sectionsConcurrency, maxCalls: 24,
+  });
+  report.calls += fill.calls;
+  report.warnings.push(...fill.warnings);
+  mark('sections', { requested: fill.requested, done: fill.results.length, concurrency: fill.concurrency });
+
+  const ch = await planChaptersParallel(novel, fill.sections, {
+    from: chapterFrom, to: chapterTo, onlyEmpty: onlyEmptyChapters,
+    instruction, concurrency, maxChapters,
+  });
+  report.calls += ch.calls;
+  report.warnings.push(...ch.warnings);
+  mark('chapters', { planned: ch.results.length, total: ch.sections.chapters.length, concurrency: ch.concurrency });
+
+  const enriched = enrichChapterHandoff(novel, ch.sections);
+  const foreshadow = (Array.isArray(ch.sections.foreshadow) ? ch.sections.foreshadow : []).map((f, i) => {
+    const setup = INT(f?.setup_chapter);
+    const payoff = INT(f?.payoff_chapter);
+    const id = TEXT(f?.id, 20) || `FS-${String(i + 1).padStart(2, '0')}`;
+    return { ...f, id, payoff_chapter: payoff && payoff > setup ? payoff : (setup ? setup + 1 : 0) };
+  });
+  mark('merge', { handoffFilled: enriched.filled, foreshadow: foreshadow.length });
+
+  return {
+    sections: { ...ch.sections, chapters: enriched.chapters, foreshadow },
+    report,
+    elapsedMs: elapsedMsSince(started),
+    chapterResults: ch.results,
+    sectionResults: fill.results,
   };
 }
 
