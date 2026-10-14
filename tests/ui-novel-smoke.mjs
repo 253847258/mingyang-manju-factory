@@ -116,6 +116,17 @@ try {
   const fwText = await page.locator('[data-role="framework_intro"]').inputValue();
   ok('AI 自动填写把框架写入故事框架介绍', fwText.includes('模块 1') && fwText.length > 200, `${fwText.length} 字`);
 
+  // 大项目（默认 100 万字体量 → 约 500 章）点「生成章节大纲」应先提示改走稳健模式
+  await page.locator('[data-act="save-form"]').first().click();
+  await page.waitForTimeout(700);
+  ok('创建项目后进入工作区', await page.locator('[data-act="outline-gen"]').count() >= 1);
+  await page.locator('[data-act="outline-gen"]').first().click();
+  await page.locator('.overlay .modal .m-body').first().waitFor({ timeout: 6000 });
+  const robustText = await page.locator('.overlay .modal .m-body').first().innerText();
+  ok('大项目大纲生成改走稳健模式提示', robustText.includes('稳健模式'), robustText.slice(0, 40).replace(/\n/g, ' '));
+  await page.locator('.overlay .modal footer .btn').first().click();
+  await page.waitForTimeout(200);
+
   // 黄金五行八卦旋转飞轮：计数显示 / 归零隐藏
   const wheel = await page.evaluate(async () => {
     const m = await import('/lib/compute-wheel.js');

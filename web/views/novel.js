@@ -1623,10 +1623,34 @@ function showAiFrameworkPreview(proposal, payload) {
   };
 }
 
+function plannedChapterCount() {
+  const n = S.detail?.novel || {};
+  return Math.min(200, Math.max(
+    1,
+    num(n.planned_chapters, 0),
+    Math.ceil(num(n.target_words, 0) / Math.max(1, num(n.chapter_words, 2000))),
+  ));
+}
+
 async function startOutlineGen() {
   if (!llmReady() && !(await S.ctx.confirm('当前 LLM 未就绪，生成会失败。可到「设置」页把 provider 切换为 mock（离线模板）后使用占位内容演示。仍要继续尝试吗？'))) return;
   const has = !!S.detail?.outline;
   if (has && !(await S.ctx.confirm('重新生成会新增一个大纲版本（已写作的章节正文不会被覆盖）。继续？'))) return;
+  const planned = plannedChapterCount();
+  // 章节较多时，整份大纲一次性生成容易因输出过长被截断（实测 10 章 + 完整框架会 JSON 截断报错）。
+  // 直接用稳健模式按批逐章规划，避免先浪费一次几十秒的失败调用。
+  if (planned > 12) {
+    const useRobust = await S.ctx.confirm(`本项目约 ${planned} 章：整份大纲一次性生成容易因输出过长被截断。建议直接用「稳健模式」（每批 20 章逐章规划 + 逐节补齐，约 ${Math.ceil(planned / 20) + 1} 次调用）。是否使用稳健模式？`);
+    if (useRobust) {
+      const job = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/robust-job`, {
+        instruction: '按整条故事线规划每章章首、章末和上下文衔接，确保前后逻辑一致。',
+      }));
+      if (!job?.jobId) return;
+      S.tab = 'outline';
+      watchAiJob(job.jobId, `稳健大纲生成（约 ${planned} 章）`);
+      return;
+    }
+  }
   const primary = await guard(async () => {
     try {
       return await S.ctx.api.post(`/api/novels/${S.currentId}/outline`, { saveVersion: true });
@@ -1637,11 +1661,6 @@ async function startOutlineGen() {
   if (!primary) return;
   let r = primary;
   if (primary.__error) {
-    const planned = Math.min(200, Math.max(
-      1,
-      num(S.detail?.novel?.planned_chapters, 0),
-      Math.ceil(num(S.detail?.novel?.target_words, 0) / Math.max(1, num(S.detail?.novel?.chapter_words, 2000))),
-    ));
     await new Promise((resolve) => setTimeout(resolve, 0));
     const useFallback = await confirmOutlineFallback(`整份大纲 JSON 生成失败：${primary.__error}\n\n是否切换为稳健模式？将分 ${Math.ceil(planned / 20)} 批逐章规划，再逐节补齐非章节内容。`);
     if (!useFallback) { toast(`大纲生成失败：${primary.__error}`, 'err'); return; }
