@@ -1584,18 +1584,9 @@ function showAutoCharacterReport(r) {
   const bar = document.createElement('div');
   bar.className = 'nv-row';
   bar.style.marginTop = '10px';
-  bar.innerHTML = '<button class="nv-btn nv-btn-a" data-a="fix">一键修复（补录角色 + 别名统一）</button><button class="nv-btn nv-btn-p" data-a="close">知道了</button>';
+  bar.innerHTML = '<button class="nv-btn nv-btn-p" data-a="close">知道了</button>';
   body.appendChild(bar);
   bar.querySelector('[data-a="close"]').onclick = () => m.close();
-  bar.querySelector('[data-a="fix"]').onclick = async () => {
-    m.close();
-    const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/consistency-repair`, { save: true }));
-    if (!r) return;
-    await Promise.all([reloadDetail(), loadList()]).catch(() => { /* ignore */ });
-    if (r.changes?.length) toast(`已修复：${r.changes.join('；')}`, 'ok');
-    else toast('没有可确定性修复的问题（悬空 ID 查无此人，请用分节/章节 AI 重做）', 'info');
-    if (r.after?.issues?.length) showConsistencyReport(r.after);
-  };
 }
 
 async function startConsistencyAudit() {
@@ -1905,9 +1896,18 @@ function showConsistencyReport(consistency) {
   const bar = document.createElement('div');
   bar.className = 'nv-row';
   bar.style.marginTop = '10px';
-  bar.innerHTML = '<button class="nv-btn nv-btn-p" data-a="close">知道了</button>';
+  bar.innerHTML = '<button class="nv-btn nv-btn-a" data-a="fix">一键修复（补录角色 + 别名统一）</button><button class="nv-btn nv-btn-p" data-a="close">知道了</button>';
   body.appendChild(bar);
   bar.querySelector('[data-a="close"]').onclick = () => m.close();
+  bar.querySelector('[data-a="fix"]').onclick = async () => {
+    m.close();
+    const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/consistency-repair`, { save: true }));
+    if (!r) return;
+    await Promise.all([reloadDetail(), loadList()]).catch(() => { /* ignore */ });
+    if (r.changes?.length) toast(`已修复：${r.changes.join('；')}`, 'ok');
+    else toast('没有可确定性修复的问题（悬空 ID 查无此人，请用分节/章节 AI 重做）', 'info');
+    if (r.after?.issues?.length) showConsistencyReport(r.after);
+  };
 }
 
 // 多线程统筹规划：并发补齐分节 + 并发规划章节，再统一成环与伏笔收口
