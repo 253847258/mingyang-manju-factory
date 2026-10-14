@@ -162,7 +162,7 @@ const S = {
   actors: [], actorQ: '', actorsLoaded: false,
   form: null, formMode: 'create',
   chapterIdx: null, chapter: null, editing: false,
-  jobId: null, stopWatch: null, timers: [], busy: false,
+  jobId: null, stopWatch: null, timers: [], busy: false, computeOn: false,
   handlers: null,
 };
 
@@ -1909,6 +1909,7 @@ function watchJob(jobId) {
   stopWatching();
   S.jobId = jobId;
   S.job = { status: 'queued', progress: 0, done: 0, total: 1 };
+  if (S.ctx?.compute?.start) { S.ctx.compute.start('电脑正在运行计算…'); S.computeOn = true; }
   render();
   const onUpdate = (job) => {
     if (!job) return;
@@ -1948,12 +1949,14 @@ function watchJob(jobId) {
 }
 function stopWatching() {
   if (S.stopWatch) { try { S.stopWatch(); } catch { /* ignore */ } S.stopWatch = null; }
+  if (S.computeOn) { try { S.ctx?.compute?.stop?.(); } catch { /* ignore */ } S.computeOn = false; }
 }
 
 function watchAiJob(jobId, label) {
   stopWatching();
   S.jobId = jobId;
   S.job = { status: 'queued', progress: 0, done: 0, total: 1 };
+  if (S.ctx?.compute?.start) { S.ctx.compute.start(label || '电脑正在运行计算…'); S.computeOn = true; }
   render();
   const onUpdate = (job) => {
     if (!job) return;

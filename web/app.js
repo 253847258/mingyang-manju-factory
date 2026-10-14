@@ -1,6 +1,7 @@
 // 应用外壳：导航、上下文注入、模块装载
 import { api } from './lib/api.js';
 import { el, toast, confirmDialog, modal, injectStyle, fmtNum } from './lib/ui.js';
+import { computeWheel } from './lib/compute-wheel.js';
 
 const MODULES = [
   { id: 'actors', title: '明星演员矩阵', icon: '🎭', file: './views/actors.js', desc: '宫格矩阵画布 · 明星档案 · 文生图/参考生图' },
@@ -30,6 +31,7 @@ function ctxFor(id) {
     go: (target) => navigate(target),
     watchJob: api.watchJob,
     health: () => state.health,
+    compute: computeWheel,
   };
 }
 

@@ -116,6 +116,25 @@ try {
   const fwText = await page.locator('[data-role="framework_intro"]').inputValue();
   ok('AI 自动填写把框架写入故事框架介绍', fwText.includes('模块 1') && fwText.length > 200, `${fwText.length} 字`);
 
+  // 黄金五行八卦旋转飞轮：计数显示 / 归零隐藏
+  const wheel = await page.evaluate(async () => {
+    const m = await import('/lib/compute-wheel.js');
+    m.computeWheel.begin('单元测试');
+    m.computeWheel.begin('单元测试');
+    await new Promise((r) => setTimeout(r, 700));
+    const shown = !!document.querySelector('.cw-overlay.cw-on');
+    const hasTrigrams = document.querySelectorAll('.cw-tri').length === 8;
+    const hasElements = document.querySelectorAll('.cw-elem').length === 5;
+    m.computeWheel.end();
+    const stillShown = !!document.querySelector('.cw-overlay.cw-on');
+    m.computeWheel.end();
+    await new Promise((r) => setTimeout(r, 400));
+    const hidden = !document.querySelector('.cw-overlay.cw-on');
+    return { shown, hasTrigrams, hasElements, stillShown, hidden };
+  });
+  ok('五行八卦飞轮：8 卦 + 五行', wheel.hasTrigrams && wheel.hasElements);
+  ok('五行八卦飞轮：计算中自动显示、归零后隐藏', wheel.shown && wheel.stillShown && wheel.hidden);
+
   ok('无浏览器错误', errors.length === 0, errors.join(' | '));
 
   await browser.close();

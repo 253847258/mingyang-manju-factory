@@ -1,4 +1,6 @@
 // 前端 API 封装
+import { computeWheel } from './compute-wheel.js';
+
 async function request(method, path, body, opts = {}) {
   const init = { method, headers: {} };
   if (body instanceof FormData) {
@@ -7,17 +9,23 @@ async function request(method, path, body, opts = {}) {
     init.headers['content-type'] = 'application/json';
     init.body = JSON.stringify(body);
   }
-  const res = await fetch(path, init);
-  const text = await res.text();
-  let data;
-  try { data = text ? JSON.parse(text) : {}; } catch { data = { ok: res.ok, raw: text }; }
-  if (!res.ok || data.ok === false) {
-    const msg = data.error || data.message || `请求失败（HTTP ${res.status}）`;
-    const err = new Error(msg);
-    err.status = res.status; err.detail = data.detail; err.data = data;
-    throw err;
+  // 生成 / 计算类请求自动亮起「黄金五行八卦旋转飞轮」（快请求会被延迟阈值过滤掉）
+  computeWheel.begin(opts.label || '');
+  try {
+    const res = await fetch(path, init);
+    const text = await res.text();
+    let data;
+    try { data = text ? JSON.parse(text) : {}; } catch { data = { ok: res.ok, raw: text }; }
+    if (!res.ok || data.ok === false) {
+      const msg = data.error || data.message || `请求失败（HTTP ${res.status}）`;
+      const err = new Error(msg);
+      err.status = res.status; err.detail = data.detail; err.data = data;
+      throw err;
+    }
+    return data;
+  } finally {
+    computeWheel.end();
   }
-  return data;
 }
 
 export const api = {
