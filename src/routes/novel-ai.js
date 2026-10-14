@@ -12,6 +12,10 @@ import { characterFreeMode, updateCharacterFreeMode, discoverPlotCharacters, aut
 import { buildGenreCreativeBlueprint, listGenreCreativeBlueprints, buildGenreSkillPrompt } from '../genre-frameworks.js';
 import { brainstormGenre } from '../novel-brainstorm.js';
 import { GENRE_GENERATOR_OPTIONS, generateCustomGenre } from '../novel-genre-generator.js';
+import {
+  ensureGenreHistorySchema, listGenreHistory, saveGenreHistory, deleteGenreHistory,
+  markGenreHistoryUsed, clearGenreHistory,
+} from '../genre-history.js';
 import { listCreativeOptions, planGenreFromTitle, getNovelCreativeOptions, updateNovelCreativeOptions } from '../novel-creative-options.js';
 import { ensureNovelSettingsSchema, getNovelAiSettings, updateNovelAiSettings, listNovelCharacterArchive } from '../novel-settings.js';
 import { enqueue } from '../jobs.js';
@@ -23,6 +27,7 @@ function param(ctx, name) {
 
 export function registerNovelAiRoutes(app) {
   ensureNovelSettingsSchema();
+  ensureGenreHistorySchema();
   app.post('/api/novels/ai/framework', async (ctx) => {
     try {
       const body = (await ctx.body()) || {};
@@ -78,6 +83,38 @@ export function registerNovelAiRoutes(app) {
     } catch (err) {
       throw badRequest(err.message || '题材生成器生成失败');
     }
+  });
+
+  // 题材生成器历史：存储每次生成/头脑风暴的题材方案，可复用/删除。
+  app.get('/api/novels/ai/genre-history', async (ctx) => {
+    try { ctx.json(listGenreHistory({ limit: ctx.query?.limit })); }
+    catch (err) { throw badRequest(err.message || '读取题材生成历史失败'); }
+  });
+
+  app.post('/api/novels/ai/genre-history', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      const genre = body.genre && typeof body.genre === 'object' ? body.genre : body;
+      ctx.json({ ok: true, item: saveGenreHistory(genre, { source: String(body.source || genre.source || 'generator') }) });
+    } catch (err) { throw badRequest(err.message || '保存题材生成历史失败'); }
+  });
+
+  app.post('/api/novels/ai/genre-history/clear', async (ctx) => {
+    try { ctx.json(clearGenreHistory()); }
+    catch (err) { throw badRequest(err.message || '清空题材生成历史失败'); }
+  });
+
+  app.post('/api/novels/ai/genre-history/:id/use', async (ctx) => {
+    try {
+      const item = markGenreHistoryUsed(param(ctx, 'id'));
+      if (!item) throw new Error('历史题材不存在');
+      ctx.json({ ok: true, item });
+    } catch (err) { throw badRequest(err.message || '标记历史题材使用失败'); }
+  });
+
+  app.delete('/api/novels/ai/genre-history/:id', async (ctx) => {
+    try { ctx.json(deleteGenreHistory(param(ctx, 'id'))); }
+    catch (err) { throw badRequest(err.message || '删除历史题材失败'); }
   });
 
   app.get('/api/novels/ai/creative-options', async (ctx) => {

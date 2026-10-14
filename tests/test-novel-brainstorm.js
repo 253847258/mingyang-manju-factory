@@ -19,6 +19,7 @@ const { GENRES, genreById } = await import('../src/data/genres.js');
 const { buildGenreSkillPrompt } = await import('../src/genre-frameworks.js');
 const { brainstormGenre, buildBrainstormPrompt } = await import('../src/novel-brainstorm.js');
 const { generateCustomGenre, GENRE_GENERATOR_OPTIONS } = await import('../src/novel-genre-generator.js');
+const { saveGenreHistory, listGenreHistory, deleteGenreHistory } = await import('../src/genre-history.js');
 const { buildFrameworkPrompt, commitCharacters } = await import('../src/novel-ai.js');
 const { createApp, createServer } = await import('../src/http.js');
 const { registerNovelAiRoutes } = await import('../src/routes/novel-ai.js');
@@ -166,6 +167,46 @@ try {
     assert.equal(got.customGenre.name, g.name);
     assert.ok(got.customGenre.skillPrompt.includes('技能提示词'));
     return `${got.genreMode} / ${got.customGenre.name}`;
+  });
+
+  console.log('\n=== 4b. 题材生成历史 ===');
+  await check('saveGenreHistory 同 genreId 覆盖更新（不堆重复）', async () => {
+    const g = generateCustomGenre({ world: 'modern', protagonist: 'reborn', conflict: 'revenge' });
+    const a = saveGenreHistory(g, { source: 'generator' });
+    const b = saveGenreHistory({ ...g, name: `${g.name}·改` }, { source: 'generator' });
+    assert.equal(a.id, b.id);
+    assert.equal(b.name, `${g.name}·改`);
+    assert.equal(listGenreHistory().items.filter((x) => x.genreId === g.genreId).length, 1);
+    return `id=${b.id}`;
+  });
+  await check('listGenreHistory 新→旧（按 rowid）', async () => {
+    const g1 = generateCustomGenre({ world: 'ancient', protagonist: 'hidden', conflict: 'mystery' });
+    const g2 = generateCustomGenre({ world: 'future', protagonist: 'genius', conflict: 'war' });
+    saveGenreHistory(g1);
+    saveGenreHistory(g2);
+    const items = listGenreHistory().items;
+    assert.equal(items[0].genreId, g2.genreId);
+    return items.slice(0, 2).map((x) => x.name).join(' / ');
+  });
+  await check('deleteGenreHistory 删除单条', async () => {
+    const g = generateCustomGenre({ world: 'virtual', protagonist: 'group', conflict: 'rise' });
+    const it = saveGenreHistory(g);
+    assert.equal(deleteGenreHistory(it.id).removed, 1);
+    assert.equal(listGenreHistory().items.some((x) => x.id === it.id), false);
+    return 'deleted';
+  });
+  await check('题材历史接口：保存/列表/复用/删除', async () => {
+    const headers = { 'content-type': 'application/json' };
+    const g = generateCustomGenre({ world: 'xianxia', protagonist: 'awaken', conflict: 'horror' });
+    const save = await (await fetch(`${base}/api/novels/ai/genre-history`, { method: 'POST', headers, body: JSON.stringify({ genre: g, source: 'generator' }) })).json();
+    assert.ok(save.item?.id);
+    const list = await (await fetch(`${base}/api/novels/ai/genre-history`)).json();
+    assert.ok(list.items.some((x) => x.id === save.item.id));
+    const use = await (await fetch(`${base}/api/novels/ai/genre-history/${save.item.id}/use`, { method: 'POST', headers, body: '{}' })).json();
+    assert.equal(use.item.usedCount, 1);
+    const del = await (await fetch(`${base}/api/novels/ai/genre-history/${save.item.id}`, { method: 'DELETE' })).json();
+    assert.equal(del.removed, 1);
+    return `${list.items.length} 条`;
   });
 
   console.log('\n=== 5. 一键写作后台任务 ===');

@@ -160,6 +160,7 @@ const S = {
   genres: [], categories: [], povs: POV_FALLBACK, tones: TONE_FALLBACK, sections: OUTLINE_SECTIONS_FALLBACK, limits: null,
   genreCat: '全部', genreQ: '', genreMode: 'system', genreCollapsed: false, genreOptions: null,
   actors: [], actorQ: '', actorsLoaded: false,
+  genreHistory: [], genreHistoryLoaded: false, actorPanelOpen: false,
   form: null, formMode: 'create',
   chapterIdx: null, chapter: null, editing: false,
   jobId: null, stopWatch: null, timers: [], busy: false, computeOn: false,
@@ -484,6 +485,7 @@ function customGenrePanel(kind, custom) {
     </div>
     <div class="nv-row" style="margin-top:8px">
       <button class="nv-btn nv-btn-a" data-act="${isGen ? 'open-genre-generator' : 'brainstorm-genre'}">${isGen ? '🧪 打开题材生成器' : '💡 开始 AI 头脑风暴'}</button>
+      <button class="nv-btn" data-act="genre-history" title="查看题材生成历史，可一键复用或删除">🕘 历史题材（${(S.genreHistory || []).length}）</button>
     </div>
     ${active && custom ? `<div class="nv-card" style="padding:10px;margin-top:8px">
       <div class="nv-card-t">当前自定义题材：${esc(custom.name || '')}</div>
@@ -522,6 +524,8 @@ function formHtml(mode) {
   const lim = limits();
   const total = castTotal();
   const overCast = total > num(f.cast_size, 20);
+  const freeOn = f.free_mode !== false;
+  const actorOpen = !freeOn || S.actorPanelOpen;
   const toneOptions = [...new Set([f.tone, ...(S.tones || [])].filter(Boolean))].slice(0, 100);
   const genre = S.genres.find((g) => g.id === f.genre) || null;
   const shown = S.genres.filter((g) => (S.genreCat === '全部' || g.cat === S.genreCat)
@@ -571,10 +575,13 @@ function formHtml(mode) {
     <div class="nv-step" style="margin-top:14px"><em>2</em>定义演员（引用模块1演员表 + 自定义角色，合计 ≤ ${num(f.cast_size, 20)} / 200）
       <span class="nv-grow"></span>
       <span class="nv-pill ${overCast ? 'nv-badge-err' : ''}" data-role="cast-pill">已定义 ${total} 名${overCast ? `（超出 ${total - num(f.cast_size, 20)} 名）` : ''}</span>
-      <button class="nv-btn nv-btn-sm" data-act="load-actors">${S.actorsLoaded ? '刷新演员表' : '载入演员表'}</button>
+      ${freeOn
+        ? `<button class="nv-btn nv-btn-sm" data-act="toggle-actor-panel">${actorOpen ? '收起手动定义' : '仍要手动定义演员与角色'}</button>`
+        : `<button class="nv-btn nv-btn-sm" data-act="load-actors">${S.actorsLoaded ? '刷新演员表' : '载入演员表'}</button>`}
     </div>
-    <div class="nv-warn" data-role="cast-warn" style="margin-bottom:8px;${overCast ? '' : 'display:none'}">角色总数 ${total} 超过角色规模 ${num(f.cast_size, 20)}：请调大「角色规模上限」或减少角色后再保存（硬上限 200 名）。</div>
-    <div class="nv-split">
+    ${!actorOpen ? '<div class="nv-note" data-role="actor-collapsed">角色自由模式已开启：演员与角色定义已收起，数量与风格全由 AI 按剧情自动规划。需要手动指定时，点右上「仍要手动定义演员与角色」。</div>' : ''}
+    <div class="nv-warn" data-role="cast-warn" style="margin-bottom:8px;${actorOpen && overCast ? '' : 'display:none'}">角色总数 ${total} 超过角色规模 ${num(f.cast_size, 20)}：请调大「角色规模上限」或减少角色后再保存（硬上限 200 名）。</div>
+    <div class="nv-split" style="${actorOpen ? '' : 'display:none'}">
       <div class="nv-grow">
         <input class="nv-input" id="nv-actor-q" data-role="actorQ" placeholder="搜索演员（姓名 / 编号 / 定位）…" value="${esc(S.actorQ)}">
         <div class="nv-scroll" id="nv-actor-list" style="margin-top:6px;max-height:210px">
@@ -1217,7 +1224,10 @@ async function brainstormGenreFromForm() {
     targetWords: num(S.form.target_words, 1000000),
     chapterWords: num(S.form.chapter_words, 2000),
   }));
-  if (r?.genreId) showBrainstormPreview(r);
+  if (r?.genreId) {
+    saveGenreToHistory({ ...r, name: r.genreName, positioning: r.reason }, 'brainstorm');
+    showBrainstormPreview(r);
+  }
 }
 
 // 应用「题材生成器 / AI 头脑风暴」产出的自定义题材到表单（不写库）
@@ -1272,6 +1282,86 @@ function showGeneratedGenrePreview(r) {
   };
 }
 
+// 生成成功后自动归档到「题材生成历史」（失败不阻断主流程）
+async function saveGenreToHistory(genre, source) {
+  try {
+    const r = await S.ctx.api.post('/api/novels/ai/genre-history', {
+      source: source || 'generator',
+      genre: {
+        genreId: genre.genreId,
+        name: genre.name || genre.genreName,
+        category: genre.category,
+        tone: genre.tone,
+        keywords: genre.keywords || [],
+        positioning: genre.positioning || genre.reason || '',
+        hook: genre.hook || '',
+        description: genre.description || '',
+        frameworkIntro: genre.frameworkIntro || '',
+        skillPrompt: genre.skillPrompt || '',
+        options: genre.options || null,
+      },
+    });
+    if (r?.item) {
+      S.genreHistory = [r.item, ...(S.genreHistory || []).filter((x) => x.genreId !== r.item.genreId)];
+      S.genreHistoryLoaded = true;
+    }
+  } catch { /* 历史归档失败不阻断生成 */ }
+}
+
+async function showGenreHistory() {
+  const r = await guard(async () => S.ctx.api.get('/api/novels/ai/genre-history?limit=50'));
+  if (!r) return;
+  S.genreHistory = r.items || [];
+  S.genreHistoryLoaded = true;
+  const items = S.genreHistory;
+  const body = document.createElement('div');
+  body.innerHTML = items.length
+    ? items.map((it, i) => `<div class="nv-card" style="padding:8px;margin-bottom:6px">
+    <div class="nv-row"><b>${esc(it.name)}</b><span class="nv-pill">${esc(it.category || '自定义')}</span>
+      <span class="nv-hint">${it.source === 'brainstorm' ? 'AI 头脑风暴' : '题材生成器'}｜用过 ${it.usedCount || 0} 次｜${esc(String(it.updatedAt || '').slice(0, 19).replace('T', ' '))}</span></div>
+    <div class="nv-hint" style="margin-top:4px">关键词：${esc((it.keywords || []).join('、') || '—')}｜基调：${esc(it.tone || '—')}</div>
+    ${(it.positioning || it.description) ? `<div class="nv-hint" style="margin-top:2px">${esc(String(it.positioning || it.description).slice(0, 100))}</div>` : ''}
+    <div class="nv-row" style="margin-top:6px">
+      <button class="nv-btn nv-btn-sm nv-btn-p" data-a="apply" data-i="${i}">应用到表单</button>
+      <button class="nv-btn nv-btn-sm nv-btn-d" data-a="del" data-i="${i}">删除</button>
+    </div></div>`).join('')
+    : '<div class="nv-empty">还没有历史题材。<br>用「题材生成器」或「AI 头脑风暴」生成一次，就会自动归档到这里。</div>';
+  const m = S.ctx.modal({ title: `🕘 题材生成历史（${items.length}）`, body, width: 720 });
+  const bar = document.createElement('div');
+  bar.className = 'nv-row';
+  bar.style.marginTop = '10px';
+  bar.innerHTML = `${items.length ? '<button class="nv-btn nv-btn-d" data-a="clear">清空历史</button>' : ''}<span class="nv-grow"></span><button class="nv-btn" data-a="close">关闭</button>`;
+  body.appendChild(bar);
+  bar.querySelector('[data-a="close"]').onclick = () => m.close();
+  bar.querySelector('[data-a="clear"]')?.addEventListener('click', async () => {
+    if (!(await S.ctx.confirm('清空全部题材生成历史？此操作不可恢复。'))) return;
+    await guard(async () => S.ctx.api.post('/api/novels/ai/genre-history/clear', {}), '已清空题材历史');
+    S.genreHistory = [];
+    m.close();
+    render();
+  });
+  body.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-a]');
+    if (!btn) return;
+    const it = items[Number(btn.dataset.i)];
+    if (btn.dataset.a === 'apply' && it) {
+      applyCustomGenre({
+        genreId: it.genreId, name: it.name, category: it.category, tone: it.tone, keywords: it.keywords,
+        positioning: it.positioning, hook: it.hook, description: it.description,
+        frameworkIntro: it.frameworkIntro, skillPrompt: it.skillPrompt, options: it.options,
+      }, it.source === 'brainstorm' ? 'brainstorm' : 'generator');
+      S.ctx.api.post(`/api/novels/ai/genre-history/${it.id}/use`, {}).catch(() => { /* ignore */ });
+      m.close();
+      toast(`已应用历史题材「${it.name}」`, 'ok');
+    } else if (btn.dataset.a === 'del' && it) {
+      await guard(async () => S.ctx.api.del(`/api/novels/ai/genre-history/${it.id}`), '已删除');
+      S.genreHistory = S.genreHistory.filter((x) => x.id !== it.id);
+      m.close();
+      showGenreHistory();
+    }
+  });
+}
+
 async function openGenreGenerator() {
   if (S.busy) return;
   let opts = S.genreOptions;
@@ -1320,6 +1410,7 @@ async function openGenreGenerator() {
     };
     const r = await guard(async () => S.ctx.api.post('/api/novels/ai/generate-genre', payload));
     if (!r?.genreId) return;
+    saveGenreToHistory(r, 'generator');
     m.close();
     showGeneratedGenrePreview(r);
   };
@@ -2184,6 +2275,8 @@ async function onClickEvent(e) {
       return;
     }
     case 'genre-collapse': S.genreCollapsed = !S.genreCollapsed; collectForm(); render(); return;
+    case 'toggle-actor-panel': S.actorPanelOpen = !S.actorPanelOpen; collectForm(); render(); return;
+    case 'genre-history': await showGenreHistory(); return;
     case 'genre-off': {
       S.form = collectForm();
       if (S.form.genre === 'custom-free') {
@@ -2382,8 +2475,10 @@ function onChangeEvent(e) {
     S.form = collectForm();
     const on = !!e.target.checked;
     if (on) S.form.free_max = limits().castSize.max;
+    S.actorPanelOpen = false;
     const wrap = S.root?.querySelector('[data-role="free-max-wrap"]');
     if (wrap) wrap.style.display = on ? 'none' : '';
+    render();
     return;
   }
   if (role === 'chapter_words' || role === 'target_words' || role === 'cast_size' || role === 'seasons') {
@@ -2413,7 +2508,8 @@ function updateDerivedHints() {
   if (note) {
     const t = castTotal();
     const over = t > num(f.cast_size, 20);
-    note.style.display = over ? '' : 'none';
+    const collapsed = (f.free_mode !== false) && !S.actorPanelOpen;
+    note.style.display = (over && !collapsed) ? '' : 'none';
     note.innerHTML = `角色总数 ${t} 超过角色规模 ${num(f.cast_size, 20)}：请调大「角色规模上限」或减少角色后再保存（硬上限 200 名）。`;
   }
 }

@@ -82,6 +82,11 @@ try {
   ok('题材 3 选 1 模式切换', await page.locator('[data-act="genre-mode"]').count() === 3);
   ok('系统题材可收起', await page.locator('[data-act="genre-collapse"]').count() === 1);
   ok('自由模式开启时隐藏「最多按剧情新增」', await page.locator('[data-role="free-max-wrap"]').isHidden());
+  ok('自由模式开启时收起演员/角色定义', await page.locator('[data-role="actor-collapsed"]').count() === 1);
+  ok('收起后演员定义区不可见', await page.locator('.nv-split').first().isHidden());
+  await page.locator('[data-act="toggle-actor-panel"]').first().click();
+  await page.waitForTimeout(200);
+  ok('可展开手动定义演员', await page.locator('#nv-actor-q').isVisible());
 
   await page.locator('[data-act="unlimited-cast"]').click();
   ok('无创意限制使用系统安全上限', await page.locator('[data-role="cast_size"]').inputValue() === '200');
@@ -93,6 +98,7 @@ try {
   // 模式二：题材生成器
   await page.locator('[data-act="genre-mode"][data-mode="generator"]').click();
   ok('题材生成器入口', await page.locator('[data-act="open-genre-generator"]').count() === 1);
+  ok('题材生成历史入口', await page.locator('[data-act="genre-history"]').count() === 1);
   await page.locator('[data-act="open-genre-generator"]').click();
   await page.locator('.overlay .modal').first().waitFor({ timeout: 8000 });
   ok('题材生成器弹窗含选项', await page.locator('#gg-world, #gg-pro, #gg-con, #gg-pace, #gg-aud').count() === 5);
