@@ -360,6 +360,49 @@ await check('orchestrateOutline 返回一致性校对结果', async () => {
   assert.equal(r.report.consistency, r.consistency);
   return `ok=${r.consistency.ok} issues=${r.consistency.issues.length}`;
 });
+await check('repairOutlineConsistency 补录演员矩阵角色并统一别名', async () => {
+  const extra = createActor({ name: '陆沉', alias: '沈砚', role_type: '男主', style_id: 'cinematic-real' });
+  const now2 = nowISO();
+  run(`INSERT INTO novels(id, title, genre, cast_size, target_words, chapter_words, pov, actor_ids, custom_actors, seasons, status, created_at, updated_at)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  'N-REP', '一致性修复测试', 'urban-revenge', 20, 24000, 2000, 'third-limited',
+  JSON.stringify([extra.id]), JSON.stringify([{ id: 'CX-0001', name: '赵天豪', role: '反派' }]), 1, 'draft', now2, now2);
+  const sections = {
+    characters: [],
+    logline: '陆沉追查真相',
+    framework: { antagonist_force: `${extra.id} 与 CX-0001 长期对立` },
+    storyline: { opening_logic: '沈砚在雨夜登场' },
+    locations: [],
+    chapters: [{ idx: 1, start_state: '沈砚与 CX-0001 对峙', summary: '推进', end_state: '收束' }],
+  };
+  const r = OAI.repairOutlineConsistency(OAI.novelOf('N-REP'), sections);
+  const ids = r.sections.characters.map((c) => c.id);
+  assert.ok(ids.includes(extra.id), `应补录 ${extra.id}`);
+  assert.ok(ids.includes('CX-0001'), '应补录自定义角色');
+  assert.ok(r.sections.storyline.opening_logic.includes('陆沉'), '别名应统一为规范名');
+  assert.ok(r.sections.chapters[0].start_state.includes('陆沉'));
+  assert.ok(r.changes.length >= 2, r.changes.join('；'));
+  assert.equal(r.after.issues.filter((x) => x.type === 'unknownCharacterId').length, 0, '悬空人物 ID 应全部补齐');
+  assert.ok(r.before.issues.some((x) => x.type === 'unknownCharacterId'));
+  return r.changes.join('；');
+});
+await check('POST /outline/ai/consistency-repair 修复并落库为新版本', async () => {
+  OAI.saveOutlineVersion('N-REP', {
+    characters: [], logline: '陆沉追查真相',
+    framework: { antagonist_force: 'C-9999 与 CX-0001 对立' },
+    storyline: { opening_logic: '沈砚登场' }, locations: [], chapters: [],
+  }, { source: 'test-rep-before' });
+  const res = await fetch(`${base}/api/novels/N-REP/outline/ai/consistency-repair`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ save: true }),
+  });
+  const json = await res.json();
+  assert.equal(res.status, 200);
+  assert.ok(json.saved && json.saved.version > 0, '应落库新版本');
+  const after = OAI.loadSections('N-REP');
+  assert.ok(after.characters.some((c) => c.id === 'CX-0001'));
+  assert.ok(String(after.storyline.opening_logic).includes('陆沉'));
+  return `v${json.saved.version} changes=${json.changes.length}`;
+});
 await check('POST /outline/ai/orchestrate-job 后台完成并落库', async () => {
   const started = await (await fetch(`${base}/api/novels/N-OAI/outline/ai/orchestrate-job`, {
     method: 'POST', headers: { 'content-type': 'application/json' },

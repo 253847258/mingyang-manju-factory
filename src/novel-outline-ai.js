@@ -850,6 +850,105 @@ export function auditOutlineConsistency(sections = {}) {
   return { ok: issues.length === 0, castCount: cast.length, locationCount: locs.length, issues };
 }
 
+function collectReferencedCharacterIds(sections = {}) {
+  const out = new Map();
+  const add = (text, label) => {
+    if (typeof text !== 'string') return;
+    for (const m of text.matchAll(/C(?:X)?-\d{4}/gi)) {
+      const id = m[0].toUpperCase();
+      if (!out.has(id)) out.set(id, new Set());
+      out.get(id).add(label);
+    }
+  };
+  for (const [k, v] of Object.entries(sections)) {
+    if (k === 'meta') continue;
+    add(typeof v === 'string' ? v : JSON.stringify(v || {}), k);
+  }
+  return out;
+}
+
+// 深度遍历，把字符串里的别名统一替换为规范名（仅替换长度 ≥2 的别名）
+function replaceAliasesDeep(value, aliases) {
+  let hits = 0;
+  const walk = (node) => {
+    if (typeof node === 'string') {
+      let text = node;
+      for (const [alias, canonical] of aliases) {
+        if (alias === canonical) continue;
+        if (!text.includes(alias)) continue;
+        hits += text.split(alias).length - 1;
+        text = text.split(alias).join(canonical);
+      }
+      return text;
+    }
+    if (Array.isArray(node)) return node.map(walk);
+    if (node && typeof node === 'object') {
+      for (const key of Object.keys(node)) node[key] = walk(node[key]);
+      return node;
+    }
+    return node;
+  };
+  return { value: walk(value), hits };
+}
+
+// 一致性问题「一键修复」（确定性，不调用 LLM）：
+//   1) 悬空的 C-/CX- 人物 ID：若该角色真实存在于演员矩阵/自定义角色里 → 补录进人物表
+//   2) 演员别名（actors.alias）统一为规范名
+// 无法确定性解析的部分（凭空出现且查无此人的 ID）保持原样，交由下一次校对继续提示。
+export function repairOutlineConsistency(novel, sections = {}) {
+  const before = auditOutlineConsistency(sections);
+  let out;
+  try { out = JSON.parse(JSON.stringify(sections || {})); } catch { out = { ...(sections || {}) }; }
+  const cast = Array.isArray(out.characters) ? out.characters : (out.characters = []);
+  const castIds = new Set(cast.map((c) => TEXT(c.id, 20).toUpperCase()).filter(Boolean));
+  const changes = [];
+
+  const actorRows = all('SELECT id, name, role_type, alias FROM actors');
+  const actorById = new Map(actorRows.map((r) => [String(r.id).toUpperCase(), r]));
+  const customActors = safeJson(novel?.custom_actors, []) || [];
+
+  const referenced = collectReferencedCharacterIds(out);
+  const roleOf = (v) => { const t = TEXT(v, 20); return /主角|男主|女主/.test(t) ? '主角' : (/反派|敌人|对手|幕后/.test(t) ? '反派' : '配角'); };
+  for (const [id, where] of referenced) {
+    if (castIds.has(id)) continue;
+    const actor = actorById.get(id);
+    if (actor) {
+      cast.push({ id: actor.id, name: actor.name, role: roleOf(actor.role_type), arc: '', function: `由演员矩阵补录（出现在：${[...where].join('、')}）`, relationships: '' });
+      castIds.add(id);
+      changes.push(`补录人物 ${actor.id} ${actor.name}（演员矩阵已有）`);
+      continue;
+    }
+    const custom = (Array.isArray(customActors) ? customActors : []).find((c) => String(TEXT(c?.id, 20)).toUpperCase() === id);
+    if (custom?.name) {
+      cast.push({ id, name: TEXT(custom.name, 40), role: roleOf(custom.role), arc: '', function: `由自定义角色补录（出现在：${[...where].join('、')}）`, relationships: '' });
+      castIds.add(id);
+      changes.push(`补录人物 ${id} ${TEXT(custom.name, 40)}（自定义角色）`);
+    }
+  }
+
+  const aliases = new Map();
+  for (const r of actorRows) {
+    const alias = TEXT(r.alias, 40);
+    const name = TEXT(r.name, 40);
+    if (alias && name && alias !== name && alias.length >= 2) aliases.set(alias, name);
+  }
+  if (aliases.size) {
+    const { value, hits } = replaceAliasesDeep(out, aliases);
+    out = value;
+    if (hits > 0) changes.push(`统一演员别名 ${hits} 处`);
+  }
+
+  const after = auditOutlineConsistency(out);
+  return {
+    ok: true,
+    sections: out,
+    before,
+    after,
+    changes,
+    fixed: Math.max(0, before.issues.length - after.issues.length),
+  };
+}
+
 export function buildSectionPrompt(novel = {}, sections = {}, key, { instruction = '', ctx = null, refText = '' } = {}) {
   const spec = SPEC_BY_KEY.get(key);
   if (!spec) throw new Error(`未知大纲分节：${key}`);

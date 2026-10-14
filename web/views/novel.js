@@ -753,6 +753,7 @@ function outlineHtml() {
       <div class="nv-row" style="justify-content:center;margin-top:10px">
         <button class="nv-btn nv-btn-a" data-act="outline-ai-plan">✨ AI 自动规划生成</button>
         <button class="nv-btn nv-btn-a" data-act="outline-orchestrate" title="并发补齐分节 + 并发规划章节，最后统一做章首/章末成环与伏笔收口">⚡ 多线程统筹规划</button>
+        <button class="nv-btn" data-act="outline-consistency" title="校对人物 ID / 反派出场 / 地点引用，可一键修复">🔎 一致性校对</button>
         <button class="nv-btn" data-act="outline-gen">仅生成章节大纲</button>
       </div>
       <div class="nv-hint" style="text-align:center;margin-top:8px">LLM 未配置时可在「设置」页把 provider 切到 mock（离线模板）先看结构。</div></div>`;
@@ -768,6 +769,7 @@ function outlineHtml() {
       <span class="nv-grow"></span>
       <button class="nv-btn nv-btn-a nv-btn-sm" data-act="outline-ai-plan" title="自动规划缺失的章节大纲，并逐节补齐所有空缺内容">✨ AI 自动规划生成</button>
       <button class="nv-btn nv-btn-a nv-btn-sm" data-act="outline-orchestrate" title="多线程统筹：并行补齐分节 + 并行规划章节，再统一成环与收口">⚡ 多线程统筹规划</button>
+      <button class="nv-btn nv-btn-sm" data-act="outline-consistency" title="校对人物 ID / 反派出场 / 地点引用，可一键修复">🔎 一致性校对</button>
       <button class="nv-btn nv-btn-sm" data-act="outline-optimize">✎ 按指令优化</button>
       <button class="nv-btn nv-btn-sm" data-act="outline-append" title="超长篇分卷/分批继续：保留已有章节大纲，从第 N 章往后继续规划">⤵ 续规划章节</button>
       <button class="nv-btn nv-btn-sm" data-act="outline-gen">↻ 重新生成</button>
@@ -1582,9 +1584,26 @@ function showAutoCharacterReport(r) {
   const bar = document.createElement('div');
   bar.className = 'nv-row';
   bar.style.marginTop = '10px';
-  bar.innerHTML = '<button class="nv-btn nv-btn-p" data-a="close">知道了</button>';
+  bar.innerHTML = '<button class="nv-btn nv-btn-a" data-a="fix">一键修复（补录角色 + 别名统一）</button><button class="nv-btn nv-btn-p" data-a="close">知道了</button>';
   body.appendChild(bar);
   bar.querySelector('[data-a="close"]').onclick = () => m.close();
+  bar.querySelector('[data-a="fix"]').onclick = async () => {
+    m.close();
+    const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/consistency-repair`, { save: true }));
+    if (!r) return;
+    await Promise.all([reloadDetail(), loadList()]).catch(() => { /* ignore */ });
+    if (r.changes?.length) toast(`已修复：${r.changes.join('；')}`, 'ok');
+    else toast('没有可确定性修复的问题（悬空 ID 查无此人，请用分节/章节 AI 重做）', 'info');
+    if (r.after?.issues?.length) showConsistencyReport(r.after);
+  };
+}
+
+async function startConsistencyAudit() {
+  if (!S.currentId || !S.detail?.outline) { toast('还没有大纲', 'err'); return; }
+  const r = await guard(async () => S.ctx.api.get(`/api/novels/${S.currentId}/outline/ai/consistency`));
+  if (!r?.consistency) return;
+  if (!r.consistency.issues.length) { toast('一致性校对通过：未发现问题', 'ok'); return; }
+  showConsistencyReport(r.consistency);
 }
 
 async function autoCharactersFromPlot({ silentIfNone = false, quiet = false } = {}) {
@@ -2419,6 +2438,7 @@ async function onClickEvent(e) {
     case 'outline-gen': await startOutlineGen(); return;
     case 'outline-ai-plan': startOutlineAiPlan(); return;
     case 'outline-orchestrate': await startOrchestrateOutline(); return;
+    case 'outline-consistency': await startConsistencyAudit(); return;
     case 'outline-ai-chapters': openChapterAiPlan(); return;
     case 'outline-ai-chapters-all': rewriteAllChapterPlans(); return;
     case 'outline-ai-chapter': openChapterAiPlan({ from: idx, to: idx, onlyEmptyDefault: false }); return;

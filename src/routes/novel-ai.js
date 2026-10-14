@@ -5,6 +5,7 @@ import { generateFrameworkProposal, commitCharacters } from '../novel-ai.js';
 import {
   outlineAiStatus, loadSections, novelOf, fillSections, generateSection, planChapters, saveOutlineVersion,
   enrichChapterHandoff, orchestrateOutline,
+  repairOutlineConsistency, auditOutlineConsistency,
 } from '../novel-outline-ai.js';
 import { writeLongChapter } from '../novel-writing.js';
 import { buildNovelAssets } from '../novel-assets.js';
@@ -461,6 +462,30 @@ export function registerNovelAiRoutes(app) {
       });
       ctx.json({ ok: true, jobId, total, concurrency, sectionsConcurrency });
     } catch (err) { throw badRequest(err.message || '创建多线程统筹规划任务失败'); }
+  });
+
+  // 一致性校对：只读，返回问题清单（不改库）
+  app.get('/api/novels/:id/outline/ai/consistency', async (ctx) => {
+    try {
+      const novelId = param(ctx, 'id');
+      novelOf(novelId);
+      ctx.json({ ok: true, consistency: auditOutlineConsistency(loadSections(novelId)) });
+    } catch (err) { throw badRequest(err.message || '大纲一致性校对失败'); }
+  });
+
+  // 一致性一键修复：补录演员矩阵/自定义角色里真实存在的悬空人物 + 统一演员别名
+  app.post('/api/novels/:id/outline/ai/consistency-repair', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      const novelId = param(ctx, 'id');
+      const novel = novelOf(novelId);
+      const sections = loadSections(novelId);
+      const r = repairOutlineConsistency(novel, sections);
+      const saved = (body.save !== false && r.changes.length > 0)
+        ? saveOutlineVersion(novelId, r.sections, { source: 'ai-consistency-repair', note: r.changes.join('；') })
+        : null;
+      ctx.json({ ok: true, changes: r.changes, fixed: r.fixed, before: r.before, after: r.after, saved });
+    } catch (err) { throw badRequest(err.message || '大纲一致性修复失败'); }
   });
 
   // 单次整份大纲只产出短摘要；这里为零成本的确定性补全「章首/章末」，让头尾能衔接。

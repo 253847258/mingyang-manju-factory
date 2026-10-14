@@ -97,6 +97,7 @@ try {
 
   // 模式二：题材生成器
   await page.locator('[data-act="genre-mode"][data-mode="generator"]').click();
+  await page.waitForTimeout(400);
   ok('题材生成器入口', await page.locator('[data-act="open-genre-generator"]').count() === 1);
   ok('题材生成历史入口', await page.locator('[data-act="genre-history"]').count() === 1);
   await page.locator('[data-act="open-genre-generator"]').click();
@@ -142,6 +143,7 @@ try {
   await page.locator('[data-act="tab"][data-tab="outline"]').first().click();
   await page.waitForTimeout(250);
   ok('多线程统筹规划入口', await page.locator('[data-act="outline-orchestrate"]').count() >= 1);
+  ok('一致性校对入口', await page.locator('[data-act="outline-consistency"]').count() >= 1);
   await page.locator('[data-act="outline-gen"]').first().click();
   await page.locator('.overlay .modal .m-body').first().waitFor({ timeout: 6000 });
   const robustText = await page.locator('.overlay .modal .m-body').first().innerText();
