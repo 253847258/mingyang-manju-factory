@@ -192,6 +192,12 @@ export async function writeLongChapter(novelId, idx, { save = true, instruction 
   if (!row) throw new Error(`第 ${idx} 章不存在`);
   const ctx = contextOf(novel, idx);
   const warnings = [];
+  const planSummary = String(ctx.plan?.summary || '').trim();
+  if (!planSummary) {
+    warnings.push(`第 ${idx} 章还没有大纲（当前为「${String(row.title || '').trim() || '未命名'}」），正文可能偏离全书设定，建议先补大纲再写`);
+  } else if (planSummary.length < 800) {
+    warnings.push(`第 ${idx} 章大纲偏短（${planSummary.length} 字），上下文不足时正文容易跑偏，建议补全后再写`);
+  }
   const status = llmStatus();
   let content = '';
   let model = '';

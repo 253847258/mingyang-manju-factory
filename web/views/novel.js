@@ -1930,15 +1930,17 @@ async function startOrchestrateOutline() {
   const snap = outlineAiSnapshot();
   const planned = plannedChapterCount();
   const sectionTasks = snap.fillable.length;
-  const chapterTasks = Math.min(20, snap.chapterStats.missing.length || planned);
+  const chapterTasks = snap.chapterStats.missing.length || planned;
   if (!sectionTasks && !chapterTasks) {
     toast('大纲与章节都已完整；如需重做，请用对应分节/章节的 AI 规划按钮', 'info');
     return;
   }
-  if (!(await S.ctx.confirm(`多线程统筹规划：并发补齐 ${sectionTasks} 个空缺分节 + 并发规划 ${chapterTasks} 章（全书约 ${planned} 章），最后统一做章首/章末成环与伏笔收口。\n预计 LLM 调用约 ${sectionTasks + chapterTasks} 次，任务进入后台队列。是否继续？`))) return;
+  if (!(await S.ctx.confirm(`多线程统筹规划：并发补齐 ${sectionTasks} 个空缺分节 + 规划全部 ${chapterTasks} 章（全书约 ${planned} 章，分约 ${Math.max(1, Math.ceil(chapterTasks / 20))} 批自动续跑，可随时停止），最后统一做章首/章末成环与伏笔收口。\n预计 LLM 调用约 ${sectionTasks + chapterTasks} 次，任务进入后台队列。是否继续？`))) return;
   const r = await guard(async () => S.ctx.api.post(`/api/novels/${S.currentId}/outline/ai/orchestrate-job`, {
     concurrency: 3,
     sectionsConcurrency: 4,
+    full: true,
+    batchSize: 20,
     instruction: '多线程统筹：各分节与各章节保持世界观、主线因果、人物 ID、地点 ID、伏笔埋设与回收一致。',
   }));
   if (!r?.jobId) return;

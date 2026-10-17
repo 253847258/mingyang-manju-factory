@@ -792,6 +792,75 @@ export async function orchestrateOutline(novel, sections, {
   };
 }
 
+// 全量分批规划：按 batchSize 章/批循环补齐，直到没有缺失章节。
+// 每批通过 onBatch 回传最新 sections，调用方应立即落盘（断点续跑）。
+// 连续两批都没有新增规划就停止，避免模型持续失败导致死循环。
+export async function planAllChaptersBatched(novel, sections, {
+  instruction = '', concurrency = 3, sectionsConcurrency = 4, batchSize = 20,
+  onlyEmptySections = true, maxBatches = 1000, onProgress = null, onBatch = null, isCanceled = null,
+  planBatch = null,
+} = {}) {
+  const size = Math.max(1, Math.min(200, Number(batchSize) || 20));
+  let current = sections;
+  let stats = chapterPlanStats(current, novel);
+  const expected = stats.expected;
+  const warnings = [];
+  let batches = 0;
+  let calls = 0;
+  let stalls = 0;
+  let last = null;
+  while (stats.missing.length && batches < maxBatches) {
+    if (isCanceled?.()) throw new Error('任务已取消');
+    const from = stats.missing[0];
+    const to = Math.min(expected, from + size - 1);
+    const before = stats.complete;
+    // planBatch 仅供确定性测试注入；生产路径走 orchestrateOutline
+    const r = planBatch
+      ? await planBatch({ novel, sections: current, from, to, batchSize: size })
+      : await orchestrateOutline(novel, current, {
+        instruction,
+        concurrency,
+        sectionsConcurrency,
+        chapterFrom: from,
+        chapterTo: to,
+        onlyEmptySections,
+        onlyEmptyChapters: true,
+        maxChapters: size,
+        onProgress,
+      });
+    current = r.sections;
+    last = r;
+    calls += r.report?.calls || 0;
+    warnings.push(...(r.report?.warnings || []));
+    stats = chapterPlanStats(current, novel);
+    batches += 1;
+    onBatch?.({ from, to, complete: stats.complete, expected, batches, sections: current, report: r.report });
+    if (stats.complete <= before) {
+      stalls += 1;
+      if (stalls >= 2) {
+        warnings.push(`第 ${from} 章起连续 ${stalls} 批没有新增规划，已停止；剩余 ${expected - stats.complete} 章未完成`);
+        break;
+      }
+    } else {
+      stalls = 0;
+    }
+  }
+  if (batches >= maxBatches && stats.missing.length) {
+    warnings.push(`已达到批次上限 ${maxBatches}，剩余 ${expected - stats.complete} 章未规划`);
+  }
+  return {
+    sections: current,
+    last,
+    calls,
+    batches,
+    warnings: [...new Set(warnings)].slice(0, 30),
+    stats,
+    expected,
+    complete: stats.missing.length === 0,
+    remaining: expected - stats.complete,
+  };
+}
+
 // 大纲一致性校对（确定性，不调用 LLM）：找出人物 ID 悬空、人物表与主线脱节、
 // 反派未进框架、地点未被引用等问题，供统筹规划后复核。
 export function auditOutlineConsistency(sections = {}) {
