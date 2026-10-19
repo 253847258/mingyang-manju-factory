@@ -23,6 +23,8 @@ import { registerSchedulesRoutes } from './src/routes/schedules.js';
 import { registerNovelAdaptRoutes } from './src/routes/novel-adapt.js';
 import { guardRestoredBackup } from './src/restore-guard.js';
 import { registerDurationRoutes } from './src/routes/duration.js';
+import { registerEditRoutes } from './src/routes/edit.js';
+import { ensureEditSchema } from './src/edit-timeline.js';
 import { registerNovelAiRoutes } from './src/routes/novel-ai.js';
 import { registerScriptingRoutes } from './src/routes/scripting.js';
 import { registerCanvasEnhanceRoutes } from './src/routes/canvas-enhance.js';
@@ -93,6 +95,7 @@ registerNovelAiRoutes(app);      // 小说工坊：故事框架 AI 自动填写 
 registerScriptingRoutes(app);    // 剧本工厂增强：物化/引用体检/提示词体检/快照/预估/FDX+HTML
 registerCanvasEnhanceRoutes(app); // 画布增强：九宫格 / 描述自动改进 / 一致性闸门 / 专业提示词
 registerDurationRoutes(app);     // 成片时长对账：目标时长 vs ffprobe 实际时长
+try { ensureEditSchema(); registerEditRoutes(app); } catch (e) { console.warn('[boot] 后期精修模块未就绪：', e.message); }  // 后期精修：多轨轻剪 / 审片打点 / 版本溯源
 // 定时排产（§10.1）：注册的同时托管 tick 定时器（.unref() 不阻塞退出）。
 // 必须排在 recoverStaleJobs()（第 31 行）之后：否则重启瞬间会把上一次被标记为中断的任务当成「上一轮还在跑」（S-07）。
 registerSchedulesRoutes(app);

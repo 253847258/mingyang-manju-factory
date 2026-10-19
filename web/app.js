@@ -9,6 +9,7 @@ const MODULES = [
   { id: 'novel', title: '小说工坊', icon: '📖', file: './views/novel.js', desc: '高级创作模式：大纲 → 完整章节（100 题材 / 200 角色 / 1000 万字）' },
   { id: 'script', title: '剧本工厂', icon: '🎬', file: './views/script.js', desc: '小说 → 漫剧/电影剧本 → 分镜提示词' },
   { id: 'render', title: '制作台', icon: '🎞', file: './views/render.js', desc: '分镜 → 关键帧 → 视频 → 整集成片' },
+  { id: 'editor', title: '后期精修', icon: '✂️', file: './views/editor.js', desc: '多轨轻剪 · 审片打点 · 版本溯源' },
   { id: 'studio', title: '制片 Agent', icon: '🎬', file: './views/studio.js', desc: '一句话需求 → 全自动制片流水线（付费阶段人工闸门）' },
   { id: 'settings', title: '设置', icon: '⚙️', file: './views/settings.js', desc: 'LLM / 出图后端 / 数据备份' },
 ];
