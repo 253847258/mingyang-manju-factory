@@ -16,6 +16,8 @@ import {
   EditConflictError, EditLockedError,
 } from '../edit-timeline.js';
 import { renderTimeline } from '../edit-render.js';
+import { buildEditPackage } from '../edit-package.js';
+import { parseImport, diffTimeline, applyImport } from '../edit-import.js';
 
 const ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const CONFIG_FILE = process.env.FACTORY_CONFIG || path.join(ROOT, 'config', 'config.json');
@@ -175,5 +177,64 @@ export function registerEditRoutes(app) {
   app.get('/api/edit/timelines/:id/audit', async (ctx) => {
     ensureEnabled(); ensureEditSchema();
     ctx.json({ ok: true, logs: listAudit(ctx.params.id, Number(ctx.query.limit) || 100) });
+  });
+
+  // P1：导出工程包（代理素材 + EDL/FCP7/OTIO + 素材清单）
+  app.post('/api/edit/timelines/:id/package', async (ctx) => {
+    ensureEnabled(); ensureEditSchema();
+    try {
+      const body = (await ctx.body()) || {};
+      const doc = getTimelineDoc(ctx.params.id);
+      if (!doc) throw notFound('时间线不存在');
+      const operator = body.operator || getOperator();
+      const withProxy = body.withProxy !== false;
+      const height = Number(body.height) || 540;
+      const jobId = enqueue({
+        type: 'assemble',
+        title: `导出工程包 · ${doc.timeline.code}`,
+        total: 5,
+        payload: { action: 'edit-package', timelineId: ctx.params.id, withProxy, height },
+        handler: async (job) => {
+          job.step(1, 5);
+          job.log(withProxy ? '正在转码代理素材…' : '跳过代理素材');
+          const r = buildEditPackage(ctx.params.id, {
+            operator,
+            withProxy,
+            height,
+            onStep: (s) => { if (s.message) job.log(s.message); else if (s.phase === 'proxy') job.log(`代理 ${s.index}/${s.total}：${s.file}`); },
+          });
+          job.step(4, 5);
+          job.log(`工程包已生成：${Math.round(r.size / 1024)} KB（${r.proxyCount} 个代理）`);
+          job.step(5, 5);
+          return r;
+        },
+      });
+      ctx.json({ ok: true, jobId });
+    } catch (e) { handleErr(ctx, e); }
+  });
+
+  // P1：回灌 FCP7 XML / OTIO（默认 dry-run，返回差异；apply=true 才写库）
+  app.post('/api/edit/timelines/:id/import', async (ctx) => {
+    ensureEnabled(); ensureEditSchema();
+    try {
+      const body = (await ctx.body()) || {};
+      const content = String(body.content || '');
+      if (!content.trim()) throw new Error('请提供 FCP7 XML 或 OTIO JSON 内容');
+      const parsed = parseImport(content);
+      if (!parsed.ok) throw new Error(parsed.error);
+      const doc = getTimelineDoc(ctx.params.id);
+      if (!doc) throw notFound('时间线不存在');
+      const diff = diffTimeline(doc, parsed);
+      if (body.apply === true) {
+        const r = applyImport(ctx.params.id, {
+          content,
+          docVersion: body.doc_version,
+          operator: body.operator || getOperator(),
+        });
+        ctx.json({ ok: true, applied: true, changed: r.changed, diff: r.diff, timeline: r.doc.timeline, tracks: r.doc.tracks });
+        return;
+      }
+      ctx.json({ ok: true, applied: false, diff });
+    } catch (e) { handleErr(ctx, e); }
   });
 }

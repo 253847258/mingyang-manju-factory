@@ -176,6 +176,8 @@ function renderBar() {
     h('span', { style: { flex: '1' } }),
     h('button', { class: 'ed-btn', disabled: S.doc?.timeline.status === 'locked' ? '' : null, onclick: saveDoc }, ['💾 保存']),
     h('button', { class: 'ed-btn ed-primary', disabled: S.doc?.timeline.status === 'locked' ? '' : null, onclick: renderFilm }, ['🎬 渲染成片']),
+    h('button', { class: 'ed-btn', onclick: exportPackage }, ['📦 工程包']),
+    h('button', { class: 'ed-btn', onclick: importTimeline }, ['📥 导入时间线']),
     h('button', { class: 'ed-btn', onclick: doResync }, ['🔄 从画布同步']),
   );
   if (!S.enabled) bar.append(h('span', { class: 'ed-err' }, ['后期精修未启用（config.edit.enabled=false）']));
@@ -438,12 +440,16 @@ async function renderFilm() {
     if (!r.jobId) return;
     toastOk('渲染已提交，正在后台处理…');
     stopJob?.();
-    stopJob = ctxRef.watchJob(r.jobId, '后期渲染', async (job) => {
-      if (job.status === 'done') {
-        await loadVersions();
-        renderAll();
-        toastOk('渲染完成，已生成新版本');
-      } else if (job.status === 'error') toastErr(job.error || '渲染失败');
+    stopJob = ctxRef.watchJob(r.jobId, (job) => {
+      if (job?.status === 'error') toastErr(job.error || '渲染失败');
+    }, {
+      onDone: async (job) => {
+        if (job.status === 'done') {
+          await loadVersions();
+          renderAll();
+          toastOk('渲染完成，已生成新版本');
+        }
+      },
     });
   } catch (e) { toastErr(e.message); }
 }
@@ -470,6 +476,85 @@ async function doResync() {
     renderAll();
     toastOk('已从画布同步');
   } catch (e) { toastErr(e.message); }
+}
+
+async function exportPackage() {
+  if (!S.doc) return;
+  try {
+    const r = await ctxRef.api.post(`/api/edit/timelines/${S.doc.timeline.id}/package`, {
+      operator: S.operator, withProxy: true,
+    });
+    if (!r.jobId) return;
+    toastOk('正在生成工程包（含 540p 代理素材），请稍候…');
+    stopJob?.();
+    stopJob = ctxRef.watchJob(r.jobId, () => {}, {
+      onDone: (job) => {
+        if (job.status !== 'done') { toastErr(job.error || '工程包生成失败'); return; }
+        let res = job.result;
+        if (typeof res === 'string') { try { res = JSON.parse(res); } catch { /* ignore */ } }
+        if (!res?.file) { toastErr('工程包已生成但未返回文件路径'); return; }
+        const a = document.createElement('a');
+        a.href = fileUrl(res.file);
+        a.download = '';
+        document.body.append(a); a.click(); a.remove();
+        toastOk(`工程包已生成：${Math.round((res.size || 0) / 1024)} KB · ${res.proxyCount || 0} 个代理`);
+      },
+    });
+  } catch (e) { toastErr(e.message); }
+}
+
+function importTimeline() {
+  if (!S.doc) return;
+  const ta = h('textarea', { rows: '9', style: { width: '100%', fontFamily: 'ui-monospace,monospace', fontSize: '12px' },
+    placeholder: '把 Premiere / DaVinci / FCP / 剪映导出的 FCP7 XML 或 OTIO JSON 粘贴到这里…' });
+  const file = h('input', { type: 'file', accept: '.xml,.otio,.json', style: { marginTop: '8px' } });
+  file.addEventListener('change', async () => {
+    const f = file.files?.[0];
+    if (f) ta.value = await f.text();
+  });
+  const out = h('div', { class: 'ed-side', style: { marginTop: '10px' } });
+  const body = h('div', {}, [ta, file, out]);
+  const m = ctxRef.modal({ title: '导入专业后期时间线（FCP7 / OTIO）', width: 780, body });
+
+  const parseBtn = h('button', { class: 'ed-btn ed-primary', onclick: async () => {
+    try {
+      const r = await ctxRef.api.post(`/api/edit/timelines/${S.doc.timeline.id}/import`, { content: ta.value });
+      if (!r.ok) throw new Error(r.error || '解析失败');
+      const d = r.diff;
+      out.innerHTML = '';
+      out.append(h('div', {}, [`格式 ${d.format} · 当前 ${d.total.current} 镜 / 导入 ${d.total.imported} 镜`]));
+      out.append(h('div', { class: d.changed ? 'ed-warn' : 'ed-muted' }, [
+        `新增 ${d.added.length} · 移除 ${d.removed.length} · 重排 ${d.reordered.length} · 裁剪 ${d.trimmed.length}`,
+      ]));
+      const list = (title, arr, fmt) => {
+        if (!arr.length) return;
+        out.append(h('div', { style: { marginTop: '8px', fontWeight: '600' } }, [title]));
+        arr.slice(0, 20).forEach((x) => out.append(h('div', { class: 'ed-item' }, [fmt(x)])));
+      };
+      list('新增（导入里有、站内没有）', d.added, (x) => `#${x.index + 1} ${x.name || x.file} · ${x.duration.toFixed(2)}s`);
+      list('移除（站内有、导入里没有）', d.removed, (x) => `${x.title || x.id}`);
+      list('重排', d.reordered, (x) => `${x.title || x.id}：第 ${x.from + 1} → 第 ${x.to + 1}`);
+      list('裁剪', d.trimmed, (x) => `${x.title || x.id}：${x.fromDur}ms → ${x.toDur}ms`);
+      if (d.warnings?.length) out.append(h('div', { class: 'ed-warn', style: { marginTop: '8px' } }, [d.warnings.slice(0, 3).join('；')]));
+      if (d.changed) {
+        out.append(h('button', { class: 'ed-btn ed-danger', style: { marginTop: '12px' }, onclick: async () => {
+          if (!(await ctxRef.confirm('将按导入的时间线覆盖主轨（画中画/字幕/音频轨保留）。继续？'))) return;
+          try {
+            const rr = await ctxRef.api.post(`/api/edit/timelines/${S.doc.timeline.id}/import`, {
+              content: ta.value, apply: true, doc_version: S.savedDocVersion, operator: S.operator,
+            });
+            if (rr.timeline) { S.doc = { timeline: rr.timeline, tracks: rr.tracks }; S.savedDocVersion = rr.timeline.doc_version; }
+            m.close(); renderAll(); toastOk('已按导入时间线更新');
+          } catch (e) { toastErr(e.message); }
+        } }, ['应用这份差异']));
+      }
+    } catch (e) { toastErr(e.message); }
+  } }, ['解析并看差异']);
+
+  body.append(h('div', { class: 'ed-row', style: { marginTop: '10px' } }, [
+    parseBtn,
+    h('button', { class: 'ed-btn', onclick: () => m.close() }, ['取消']),
+  ]));
 }
 
 // 画面圈选
