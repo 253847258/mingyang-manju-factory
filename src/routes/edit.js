@@ -18,6 +18,7 @@ import {
 import { renderTimeline } from '../edit-render.js';
 import { buildEditPackage } from '../edit-package.js';
 import { parseImport, diffTimeline, applyImport } from '../edit-import.js';
+import { analyzeSubtitles, autoFixSubtitles, proposeRoughCut, applyRoughCut, analyzeConsistency, detectBeats } from '../edit-ai.js';
 
 const ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const CONFIG_FILE = process.env.FACTORY_CONFIG || path.join(ROOT, 'config', 'config.json');
@@ -115,6 +116,8 @@ export function registerEditRoutes(app) {
           job.log('读取时间线…');
           const r = await renderTimeline(ctx.params.id, {
             operator,
+            denoise: body.denoise === true,
+            aspect: ['16:9', '9:16', '1:1'].includes(body.aspect) ? body.aspect : '16:9',
             onStep: (s) => { if (s.message) job.log(s.message); },
           });
           job.step(3, 4);
@@ -177,6 +180,79 @@ export function registerEditRoutes(app) {
   app.get('/api/edit/timelines/:id/audit', async (ctx) => {
     ensureEnabled(); ensureEditSchema();
     ctx.json({ ok: true, logs: listAudit(ctx.params.id, Number(ctx.query.limit) || 100) });
+  });
+
+  // P2：AI 精修分析（字幕 CPS / 跨镜一致性 / 粗剪方案 / BGM 卡点）
+  app.get('/api/edit/timelines/:id/analyze', async (ctx) => {
+    ensureEnabled(); ensureEditSchema();
+    try {
+      const doc = getTimelineDoc(ctx.params.id);
+      if (!doc) throw notFound('时间线不存在');
+      const subtitles = analyzeSubtitles(doc, { maxCps: Number(ctx.query.maxCps) || 9 });
+      const consistency = { ok: false, skipped: true, reason: '一致性抽检已改为后台任务（点「后台抽检」）', checked: 0, skipped: 0, outliers: [] };
+      const roughCut = proposeRoughCut(doc, { targetSeconds: ctx.query.target ? Number(ctx.query.target) : null });
+      let beats = null;
+      const audioClip = (doc.tracks.find((t) => t.kind === 'audio')?.clips || []).find((c) => c.file_path);
+      const audio = ctx.query.audio || audioClip?.file_path;
+      if (audio) {
+        try { beats = detectBeats(audio); } catch (e) { beats = { ok: false, error: e.message }; }
+      }
+      ctx.json({ ok: true, subtitles, consistency, roughCut, beats });
+    } catch (e) { handleErr(ctx, e); }
+  });
+
+  app.post('/api/edit/timelines/:id/consistency-job', async (ctx) => {
+    ensureEnabled(); ensureEditSchema();
+    try {
+      const doc = getTimelineDoc(ctx.params.id);
+      if (!doc) throw notFound('时间线不存在');
+      const jobId = enqueue({
+        type: 'assemble',
+        title: `跨镜一致性抽检 · ${doc.timeline.code}`,
+        total: 2,
+        payload: { action: 'edit-consistency', timelineId: ctx.params.id },
+        handler: async (job) => {
+          job.step(1, 2);
+          job.log('正在抽帧并计算感知哈希…');
+          const r = await analyzeConsistency(doc);
+          job.step(2, 2);
+          return r;
+        },
+      });
+      ctx.json({ ok: true, jobId });
+    } catch (e) { handleErr(e); }
+  });
+
+  app.post('/api/edit/timelines/:id/autofix-subtitles', async (ctx) => {
+    ensureEnabled(); ensureEditSchema();
+    try {
+      const body = (await ctx.body()) || {};
+      const doc = getTimelineDoc(ctx.params.id);
+      if (!doc) throw notFound('时间线不存在');
+      if (doc.timeline.status === 'locked') throw new Error('时间线已锁定，不能修改');
+      const r = autoFixSubtitles(doc, { maxCps: Number(body.maxCps) || 9, maxCharsPerLine: Number(body.maxCharsPerLine) || 18 });
+      if (!r.changed) { ctx.json({ ok: true, changed: false, fixes: [] }); return; }
+      const saved = saveTimelineDoc(ctx.params.id, { tracks: doc.tracks }, { docVersion: doc.timeline.doc_version, operator: body.operator || getOperator() });
+      ctx.json({ ok: true, changed: true, fixes: r.fixes, timeline: saved.timeline, tracks: saved.tracks });
+    } catch (e) { handleErr(ctx, e); }
+  });
+
+  app.post('/api/edit/timelines/:id/roughcut', async (ctx) => {
+    ensureEnabled(); ensureEditSchema();
+    try {
+      const body = (await ctx.body()) || {};
+      const doc = getTimelineDoc(ctx.params.id);
+      if (!doc) throw notFound('时间线不存在');
+      const plan = proposeRoughCut(doc, {
+        targetSeconds: body.targetSeconds ? Number(body.targetSeconds) : null,
+        maxShotMs: Number(body.maxShotMs) || 4000,
+      });
+      if (body.apply !== true) { ctx.json({ ok: true, applied: false, plan }); return; }
+      if (doc.timeline.status === 'locked') throw new Error('时间线已锁定，不能修改');
+      const r = applyRoughCut(doc, plan);
+      const saved = saveTimelineDoc(ctx.params.id, { tracks: r.tracks }, { docVersion: doc.timeline.doc_version, operator: body.operator || getOperator() });
+      ctx.json({ ok: true, applied: true, plan, timeline: saved.timeline, tracks: saved.tracks });
+    } catch (e) { handleErr(ctx, e); }
   });
 
   // P1：导出工程包（代理素材 + EDL/FCP7/OTIO + 素材清单）

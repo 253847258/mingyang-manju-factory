@@ -175,7 +175,13 @@ function renderBar() {
     h('span', { class: 'ed-muted' }, ['操作人']), op,
     h('span', { style: { flex: '1' } }),
     h('button', { class: 'ed-btn', disabled: S.doc?.timeline.status === 'locked' ? '' : null, onclick: saveDoc }, ['💾 保存']),
+    h('select', { class: 'ed-btn', title: '输出画幅', onchange: (e) => { S.aspect = e.target.value; } },
+      ['16:9', '9:16', '1:1'].map((v) => h('option', { value: v, selected: S.aspect === v ? '' : null }, [v === '16:9' ? '横屏 16:9' : v === '9:16' ? '竖屏 9:16' : '方屏 1:1']))),
+    h('label', { class: 'ed-muted', style: { display: 'flex', alignItems: 'center', gap: '4px' } }, [
+      h('input', { type: 'checkbox', checked: S.denoise ? '' : null, onchange: (e) => { S.denoise = e.target.checked; } }), '降噪',
+    ]),
     h('button', { class: 'ed-btn ed-primary', disabled: S.doc?.timeline.status === 'locked' ? '' : null, onclick: renderFilm }, ['🎬 渲染成片']),
+    h('button', { class: 'ed-btn', onclick: openAiPanel }, ['🤖 AI 精修']),
     h('button', { class: 'ed-btn', onclick: exportPackage }, ['📦 工程包']),
     h('button', { class: 'ed-btn', onclick: importTimeline }, ['📥 导入时间线']),
     h('button', { class: 'ed-btn', onclick: doResync }, ['🔄 从画布同步']),
@@ -436,7 +442,7 @@ async function saveDoc() {
 async function renderFilm() {
   if (S.dirty && !(await saveDoc())) return;
   try {
-    const r = await ctxRef.api.post(`/api/edit/timelines/${S.doc.timeline.id}/render`, { operator: S.operator });
+    const r = await ctxRef.api.post(`/api/edit/timelines/${S.doc.timeline.id}/render`, { operator: S.operator, aspect: S.aspect, denoise: S.denoise });
     if (!r.jobId) return;
     toastOk('渲染已提交，正在后台处理…');
     stopJob?.();
@@ -476,6 +482,86 @@ async function doResync() {
     renderAll();
     toastOk('已从画布同步');
   } catch (e) { toastErr(e.message); }
+}
+
+function aiSection(title, subtitle, extra, rows) {
+  const box = h('div', { style: { borderTop: '1px solid #232a32', paddingTop: '10px', marginTop: '10px' } }, [
+    h('div', { style: { fontWeight: '600', color: '#dfe6ef' } }, [title]),
+    h('div', { class: 'ed-muted', style: { margin: '2px 0 6px' } }, [subtitle]),
+  ]);
+  if (extra) box.append(extra);
+  for (const r of rows || []) box.append(h('div', { class: 'ed-item' }, [r]));
+  return box;
+}
+
+async function openAiPanel() {
+  if (!S.doc) return;
+  const body = h('div', { class: 'ed-side' }, [h('div', { class: 'ed-muted' }, ['正在分析（本地计算，零费用）…'])]);
+  const m = ctxRef.modal({ title: '🤖 AI 精修分析', width: 860, body });
+  try {
+    const r = await ctxRef.api.get(`/api/edit/timelines/${S.doc.timeline.id}/analyze?target=` + Math.round(totalDur() / 1000 * 0.85));
+    body.innerHTML = '';
+
+    const sub = r.subtitles;
+    const fixBtn = sub.issues.length ? h('button', { class: 'ed-btn ed-primary', onclick: async () => {
+      try {
+        const rr = await ctxRef.api.post(`/api/edit/timelines/${S.doc.timeline.id}/autofix-subtitles`, { operator: S.operator });
+        if (rr.tracks) { S.doc = { timeline: rr.timeline, tracks: rr.tracks }; S.savedDocVersion = rr.timeline.doc_version; }
+        m.close(); renderAll(); toastOk(`已修复 ${rr.fixes?.length || 0} 处字幕问题`);
+      } catch (e) { toastErr(e.message); }
+    } }, ['一键修复字幕']) : null;
+    body.append(aiSection('字幕节奏', `${sub.total} 条 · 语速过快 ${sub.summary.cps} · 行过长 ${sub.summary.line}`, fixBtn,
+      sub.issues.slice(0, 6).map((i) => `[${i.severity}] ${i.message}：${String(i.text).slice(0, 20)}`)));
+
+    const conBox = h('div', { class: 'ed-muted' }, ['从镜头视频抽帧做 pHash 比对，约 10 秒']);
+    const conBtn = h('button', { class: 'ed-btn', onclick: async () => {
+      try {
+        const rr = await ctxRef.api.post(`/api/edit/timelines/${S.doc.timeline.id}/consistency-job`, {});
+        if (!rr.jobId) return;
+        conBtn.disabled = true;
+        conBox.textContent = '抽检中…';
+        ctxRef.watchJob(rr.jobId, () => {}, {
+          onDone: (job) => {
+            conBtn.disabled = false;
+            let res = job.result;
+            if (typeof res === 'string') { try { res = JSON.parse(res); } catch { /* ignore */ } }
+            conBox.innerHTML = '';
+            if (job.status !== 'done' || !res) { conBox.textContent = job.error || '抽检失败'; return; }
+            conBox.append(h('div', { class: 'ed-muted' }, [`抽检 ${res.checked} 镜 · 跳过 ${res.skipped} · 离群 ${res.outliers.length}`]));
+            for (const x of (res.outliers || []).slice(0, 8)) {
+              conBox.append(h('div', { class: 'ed-item' }, [`${x.title || x.clip_id} · 距离 ${x.distance}`]));
+            }
+            if (!res.outliers?.length && res.checked) conBox.append(h('div', { class: 'ed-item' }, ['未发现明显离群镜']));
+          },
+        });
+      } catch (e) { toastErr(e.message); }
+    } }, ['后台抽检']);
+    const conSec = aiSection('跨镜一致性', '从镜头视频抽帧做 pHash 比对（后台任务）', conBtn, []);
+    conSec.append(conBox);
+    body.append(conSec);
+
+    const rc = r.roughCut;
+    const cutBtn = rc.changed ? h('button', { class: 'ed-btn ed-danger', onclick: async () => {
+      if (!(await ctxRef.confirm(`应用粗剪：删 ${rc.drops.length} 段、缩 ${rc.trims.length} 段，${rc.before}s → ${rc.after}s。继续？`))) return;
+      try {
+        const rr = await ctxRef.api.post(`/api/edit/timelines/${S.doc.timeline.id}/roughcut`, { apply: true, targetSeconds: rc.target, operator: S.operator });
+        if (rr.tracks) { S.doc = { timeline: rr.timeline, tracks: rr.tracks }; S.savedDocVersion = rr.timeline.doc_version; }
+        m.close(); renderAll(); toastOk('粗剪已应用');
+      } catch (e) { toastErr(e.message); }
+    } }, ['应用粗剪']) : null;
+    body.append(aiSection('粗剪建议', `${rc.before}s → ${rc.after}s（目标 ${rc.target}s）· 删 ${rc.drops.length} 段 · 缩 ${rc.trims.length} 段`, cutBtn,
+      [...rc.drops.slice(0, 4).map((x) => `删除：${x.title || x.id}（${(x.duration_ms / 1000).toFixed(1)}s）`),
+        ...rc.trims.slice(0, 4).map((x) => `缩短：${x.title || x.id} ${(x.from_ms / 1000).toFixed(1)}s → ${(x.to_ms / 1000).toFixed(1)}s`)]));
+
+    const b = r.beats;
+    body.append(aiSection('BGM 卡点',
+      b ? (b.ok ? `检出 ${b.count} 个卡点${b.bpm ? ` · 约 ${b.bpm} BPM` : ''}` : (b.error || '未检出')) : '音频轨为空（先把配乐拖进音频轨）',
+      null,
+      b?.ok ? b.beats.slice(0, 8).map((t) => `${t.toFixed(2)}s`) : []));
+  } catch (e) {
+    body.innerHTML = '';
+    body.append(h('div', { class: 'ed-err' }, [`分析失败：${e.message}`]));
+  }
 }
 
 async function exportPackage() {
@@ -594,7 +680,7 @@ function updatePlayhead() { /* 预留：时间线播放头 */ }
 // ---------------- 生命周期 ----------------
 export async function mount(el, ctx) {
   root = el; ctxRef = ctx;
-  S = { enabled: false, episodes: [], doc: null, selected: null, tab: 'props', comments: [], versions: [], films: [], audit: [], currentMs: 0 };
+  S = { enabled: false, episodes: [], doc: null, selected: null, tab: 'props', comments: [], versions: [], films: [], audit: [], currentMs: 0, aspect: '16:9', denoise: false };
   injectStyle();
   root.innerHTML = '';
   const wrap = h('div', { class: 'ed-wrap' });

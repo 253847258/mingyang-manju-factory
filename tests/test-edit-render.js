@@ -66,6 +66,13 @@ ok('转场后时长符合预期（约 1.5 秒）', Math.abs(out.duration - expec
 ok('第二个版本已落库', T.listVersions(doc.timeline.id).length === 2, '');
 ok('成片可被 ffprobe 读取', Number(out.duration) > 0, '');
 
+console.log('\n=== 3. 竖屏 9:16 + 降噪 ===');
+out = await renderTimeline(doc.timeline.id, { operator: '剪辑A', aspect: '9:16', denoise: true });
+const vp = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'json', out.absFile], { encoding: 'utf8' });
+const st = JSON.parse(vp.stdout || '{}').streams?.[0];
+ok('输出 1080x1920', st && st.width === 1080 && st.height === 1920, `${st?.width}x${st?.height}`);
+ok('竖屏版本已落库', T.listVersions(doc.timeline.id).length === 3, '');
+
 console.log(`\n=== 结果：${pass} 通过 / ${fail} 失败 ===`);
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* ignore */ }
 process.exit(fail ? 1 : 0);
