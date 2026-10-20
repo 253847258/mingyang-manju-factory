@@ -186,7 +186,7 @@ export function snapshotFromShots({ scriptId, episodeId, code }) {
       speed: 1,
       title: `第${s.idx}镜`,
       subtitle_text: txt(s.dialogue, 500),
-      extra: { shot_idx: s.idx, duration: num(s.duration, 3), needs_video: !video },
+      extra: { shot_idx: s.idx, duration: num(s.duration, 3), needs_video: !video, poster_path: kf?.file_path || '' },
     });
     cursor += durMs;
   }
