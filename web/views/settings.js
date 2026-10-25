@@ -78,16 +78,28 @@ function llmCard(cfg, health) {
 
   const body = el('div', { class: 'b' }, [
     el('div', { class: 'row' }, [el('span', { class: 'small muted' }, ['当前状态：']), stat]),
-    el('label', { class: 'f' }, ['提供方 provider', select([
+    el('label', { class: 'f', id: 'llm-provider-wrap' }, ['提供方 provider', select([
       { id: 'deepseek', name: 'DeepSeek 官方（推荐，已在 DSH 中配好 Key）' },
       { id: 'openai', name: 'OpenAI 兼容（任意 base_url，如本地 vLLM/Ollama 网关）' },
       { id: 'mock', name: 'mock 离线模板（不联网，仅跑通流程）' },
     ], form.provider, (v) => { form.provider = v; })]),
     el('div', { class: 'grid2' }, [
-      el('label', { class: 'f' }, ['base_url', el('input', { type: 'text', value: form.baseUrl || '', oninput: (e) => { form.baseUrl = e.target.value; } })]),
-      el('label', { class: 'f' }, ['模型 model', el('input', { type: 'text', value: form.model || '', oninput: (e) => { form.model = e.target.value; } })]),
+      el('label', { class: 'f' }, ['base_url', el('input', { id: 'llm-base-url', type: 'text', value: form.baseUrl || '', oninput: (e) => { form.baseUrl = e.target.value; } })]),
+      el('label', { class: 'f' }, ['模型 model', el('input', { id: 'llm-model', type: 'text', value: form.model || '', oninput: (e) => { form.model = e.target.value; } })]),
     ]),
     el('label', { class: 'f' }, [`API Key${cfg.llm.hasKey ? '（已配置，留空则不修改）' : '（未配置）'}`, el('input', { type: 'password', placeholder: cfg.llm.hasKey ? '已保存，如需更换请粘贴新 Key' : 'sk-…（留空则自动读取 ~/.dsh/.credentials.yaml 的 DEEPSEEK_API_KEY）', oninput: (e) => { form.apiKey = e.target.value; } })]),
+    el('div', { class: 'row wrap' }, [
+      el('button', { class: 'btn xs', onclick: () => {
+        form.provider = 'openai';
+        form.baseUrl = 'https://ark.cn-beijing.volces.com/api/v3';
+        form.model = 'doubao-seed-1-6-250615';
+        const sel = document.querySelector('#llm-provider-wrap select'); if (sel) sel.value = 'openai';
+        const bu = document.getElementById('llm-base-url'); if (bu) bu.value = form.baseUrl;
+        const md = document.getElementById('llm-model'); if (md) md.value = form.model;
+        toast('已填入火山方舟地址与默认模型；请粘贴 API Key 后点保存', 'ok', 4200);
+      } }, ['🔥 火山方舟预设']),
+      el('span', { class: 'small muted' }, ['模型可填模型 ID，也可填 Endpoint ID（ep-…）']),
+    ]),
     el('div', { class: 'grid3' }, [
       el('label', { class: 'f' }, ['温度 temperature', el('input', { type: 'number', step: 0.05, min: 0, max: 2, value: form.temperature, oninput: (e) => { form.temperature = Number(e.target.value); } })]),
       el('label', { class: 'f' }, ['单次最大 tokens', el('input', { type: 'number', min: 256, max: 64000, value: form.maxTokens, oninput: (e) => { form.maxTokens = Number(e.target.value); } })]),
@@ -421,6 +433,22 @@ function imageCard(cfg, health) {
 
   const presets = [
     {
+      name: '🔥 火山方舟 Seedream', hint: '填 API Key 与模型 ID（如 doubao-seedream-5-0-pro-260628）；参考图走图生图模板',
+      apply: () => {
+        form.backend = 'generic-http';
+        form.generic.url = 'https://ark.cn-beijing.volces.com/api/v3/images/generations';
+        form.generic.method = 'POST';
+        form.generic.headers = '{"Content-Type":"application/json"}';
+        // 文生图模板不含 image（Ark 收到空 image 会 400）；图生图模板才带 image
+        form.generic.bodyTemplate = '{"model":"{{model}}","prompt":"{{prompt}}","size":"{{width}}x{{height}}","response_format":"url","watermark":false}';
+        form.generic.refBodyTemplate = '{"model":"{{model}}","prompt":"{{prompt}}","image":"{{refImage}}","size":"{{width}}x{{height}}","response_format":"url","watermark":false}';
+        form.generic.responseImagePath = 'data.0.url';
+        form.generic.model = 'doubao-seedream-5-0-pro-260628';
+        form.generic.refImageField = 'image';
+        form.generic.refImageFormat = 'dataurl';
+      },
+    },
+    {
       name: 'OpenAI 兼容示例', apply: () => {
         form.backend = 'generic-http';
         form.generic.url = 'https://api.example.com/v1/images/generations';
@@ -617,6 +645,21 @@ function videoCard(cfg, health) {
     } else {
       const g = form.generic;
       detail.append(
+        el('div', { class: 'row wrap' }, [
+          el('button', { class: 'btn xs', onclick: () => {
+            g.url = 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks';
+            g.method = 'POST';
+            g.model = 'doubao-seedance-2-5-260628';
+            g.bodyTemplate = '{"model":"{{model}}","content":[{"type":"text","text":"{{prompt}}"},{"type":"image_url","image_url":{"url":"{{refImage}}"},"role":"first_frame"}],"ratio":"adaptive","duration":{{duration}}}';
+            g.responseVideoPath = 'content.video_url';
+            g.pollUrl = 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/{{taskId}}';
+            g.pollStatusPath = 'status';
+            g.refImageFormat = 'dataurl';
+            renderDetail();
+            toast('已套用火山方舟 Seedance 预设，请填 API Key 与模型 ID 后保存', 'ok', 4200);
+          } }, ['🔥 火山方舟 Seedance']),
+          el('span', { class: 'small muted' }, ['首帧驱动；模型可填 seedance 模型 ID 或 Endpoint ID']),
+        ]),
         el('div', { class: 'grid2' }, [
           fi('视频接口 URL', g.url, 'https://…/v1/videos/generations', (x) => { g.url = x; }),
           fi('方法', g.method, 'POST', (x) => { g.method = x; }),
