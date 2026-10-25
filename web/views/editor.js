@@ -145,7 +145,11 @@ function relayoutClipStarts() {
   for (const c of (mainTrack()?.clips || [])) { c.start_ms = cur; cur += clipDur(c); }
   for (const t of S.doc.tracks) {
     if (t.kind === 'main') continue;
-    if (t.kind === 'subtitle') {
+    if (t.kind === 'main') {
+    const ex = c.extra || (c.extra = {});
+    wrap.append(field('竖屏焦点 x（0-1）', inputNum('focus', ex.focus_x ?? 0.5, (v) => { ex.focus_x = Math.max(0, Math.min(1, v)); }, '0.05')));
+  }
+  if (t.kind === 'subtitle') {
       let s = 0;
       for (const c of t.clips || []) { c.start_ms = s; s += clipDur(c); }
     }
@@ -552,6 +556,30 @@ async function openAiPanel() {
     body.append(aiSection('粗剪建议', `${rc.before}s → ${rc.after}s（目标 ${rc.target}s）· 删 ${rc.drops.length} 段 · 缩 ${rc.trims.length} 段`, cutBtn,
       [...rc.drops.slice(0, 4).map((x) => `删除：${x.title || x.id}（${(x.duration_ms / 1000).toFixed(1)}s）`),
         ...rc.trims.slice(0, 4).map((x) => `缩短：${x.title || x.id} ${(x.from_ms / 1000).toFixed(1)}s → ${(x.to_ms / 1000).toFixed(1)}s`)]));
+
+    const focusBox = h('div', { class: 'ed-muted' }, ['按主体能量自动计算每镜的竖屏焦点（后台任务）']);
+    const focusBtn = h('button', { class: 'ed-btn', onclick: async () => {
+      try {
+        const rr = await ctxRef.api.post(`/api/edit/timelines/${S.doc.timeline.id}/auto-focus`, { operator: S.operator });
+        if (!rr.jobId) return;
+        focusBtn.disabled = true;
+        focusBox.textContent = '对焦计算中…';
+        ctxRef.watchJob(rr.jobId, () => {}, {
+          onDone: async (job) => {
+            focusBtn.disabled = false;
+            let res = job.result;
+            if (typeof res === 'string') { try { res = JSON.parse(res); } catch { /* ignore */ } }
+            if (job.status !== 'done' || !res) { focusBox.textContent = job.error || '对焦失败'; return; }
+            focusBox.textContent = `已更新 ${res.changed} 镜（跳过 ${res.skipped}）`;
+            await loadTimeline(S.code, S.scriptId);
+            toastOk('竖屏焦点已更新，渲染 9:16 时生效');
+          },
+        });
+      } catch (e) { toastErr(e.message); }
+    } }, ['竖屏智能对焦']);
+    const focusSec = aiSection('竖屏智能重构', '按列方向能量找主体位置，9:16 渲染时按焦点裁切', focusBtn, []);
+    focusSec.append(focusBox);
+    body.append(focusSec);
 
     const b = r.beats;
     body.append(aiSection('BGM 卡点',

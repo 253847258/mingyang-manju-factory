@@ -274,4 +274,74 @@ export async function analyzeConsistency(doc) {
   }
 }
 
+// ---------------- 竖屏智能重构：主体对焦 ----------------
+// 做法：抽一帧 → 灰度 → 列方向梯度能量 → 找出 9:16 裁切窗口内能量最高的位置。
+// 纯本地、确定性、零费用；返回归一化焦点 x（0..1）。
+export async function detectFocusX(file, midMs = null) {
+  const abs = resolveMediaPath(file);
+  if (!abs || !fs.existsSync(abs)) throw new Error('素材不存在');
+  let sharp = null;
+  try { sharp = (await import('sharp')).default; } catch { throw new Error('sharp 不可用，无法做主体对焦'); }
+  const os = await import('node:os');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'focus-'));
+  const frame = path.join(tmp, 'frame.png');
+  try {
+    const args = ['-y', '-hide_banner', '-loglevel', 'error'];
+    if (midMs != null) args.push('-ss', String(Math.max(0, Number(midMs) / 1000)));
+    args.push('-i', abs, '-frames:v', '1', '-vf', 'scale=320:-2', frame);
+    await execFileP('ffmpeg', args);
+    if (!fs.existsSync(frame)) throw new Error('抽帧失败');
+    const { data, info } = await sharp(frame).greyscale().raw().toBuffer({ resolveWithObject: true });
+    const w = info.width;
+    const h = info.height;
+    const col = new Float64Array(w);
+    for (let y = 1; y < h; y += 1) {
+      for (let x = 1; x < w; x += 1) {
+        const i = y * w + x;
+        col[x] += Math.abs(data[i] - data[i - 1]) + Math.abs(data[i] - data[i - w]);
+      }
+    }
+    const k = 9;
+    const sm = new Float64Array(w);
+    for (let x = 0; x < w; x += 1) {
+      let sum = 0; let n = 0;
+      for (let d = -k; d <= k; d += 1) { const j = x + d; if (j >= 0 && j < w) { sum += col[j]; n += 1; } }
+      sm[x] = sum / Math.max(1, n);
+    }
+    const cropW = w > h ? Math.min(w, Math.round((h * 9) / 16)) : w;
+    let best = -1; let bestStart = 0;
+    for (let x = 0; x + cropW <= w; x += 1) {
+      let sum = 0;
+      for (let j = x; j < x + cropW; j += 1) sum += sm[j];
+      if (sum > best) { best = sum; bestStart = x; }
+    }
+    const mean = sm.reduce((a, b) => a + b, 0) / Math.max(1, w);
+    const focusX = w > h ? Number(((bestStart + cropW / 2) / w).toFixed(4)) : 0.5;
+    return { ok: true, focusX, cropW, width: w, height: h, confidence: mean > 0 ? Number((best / (mean * cropW)).toFixed(2)) : 1 };
+  } finally {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+}
+
+export async function autoFocusClips(doc, { concurrency = 4 } = {}) {
+  const main = doc.tracks.find((t) => t.kind === 'main');
+  const clips = [...(main?.clips || [])].sort((a, b) => a.order_index - b.order_index);
+  const results = await mapLimit(clips, concurrency, async (c) => {
+    // 有视频用视频；没有视频时退回关键帧（与渲染器的素材兜底保持一致）
+    const media = resolveMediaPath(c.file_path || c.extra?.poster_path || '');
+    if (!media || !fs.existsSync(media)) return { id: c.id, skipped: true };
+    const mid = (Number(c.src_in_ms) + Number(c.src_out_ms)) / 2;
+    // 静帧不给 -ss（单帧图片在 -ss 之后可能一帧都取不到）
+    const isImage = /\.(png|jpe?g|webp|bmp|tiff?)$/i.test(media);
+    try {
+      const r = await detectFocusX(media, isImage ? null : mid);
+      return { id: c.id, focusX: r.focusX, confidence: r.confidence, width: r.width, height: r.height };
+    } catch {
+      return { id: c.id, skipped: true };
+    }
+  });
+  const applied = results.filter((x) => !x.skipped);
+  return { ok: true, applied, skipped: results.length - applied.length, total: clips.length };
+}
+
 export { wrapText as wrapSubtitleText };

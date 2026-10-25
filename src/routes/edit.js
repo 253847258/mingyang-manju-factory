@@ -18,7 +18,7 @@ import {
 import { renderTimeline } from '../edit-render.js';
 import { buildEditPackage } from '../edit-package.js';
 import { parseImport, diffTimeline, applyImport } from '../edit-import.js';
-import { analyzeSubtitles, autoFixSubtitles, proposeRoughCut, applyRoughCut, analyzeConsistency, detectBeats } from '../edit-ai.js';
+import { analyzeSubtitles, autoFixSubtitles, proposeRoughCut, applyRoughCut, analyzeConsistency, detectBeats, autoFocusClips } from '../edit-ai.js';
 
 const ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const CONFIG_FILE = process.env.FACTORY_CONFIG || path.join(ROOT, 'config', 'config.json');
@@ -198,6 +198,40 @@ export function registerEditRoutes(app) {
         try { beats = detectBeats(audio); } catch (e) { beats = { ok: false, error: e.message }; }
       }
       ctx.json({ ok: true, subtitles, consistency, roughCut, beats });
+    } catch (e) { handleErr(ctx, e); }
+  });
+
+  app.post('/api/edit/timelines/:id/auto-focus', async (ctx) => {
+    ensureEnabled(); ensureEditSchema();
+    try {
+      const body = (await ctx.body()) || {};
+      const doc = getTimelineDoc(ctx.params.id);
+      if (!doc) throw notFound('时间线不存在');
+      if (doc.timeline.status === 'locked') throw new Error('时间线已锁定，不能修改');
+      const jobId = enqueue({
+        type: 'assemble',
+        title: `竖屏智能对焦 · ${doc.timeline.code}`,
+        total: 3,
+        payload: { action: 'edit-focus', timelineId: ctx.params.id },
+        handler: async (job) => {
+          job.step(1, 3);
+          job.log('正在抽帧计算主体焦点…');
+          const r = await autoFocusClips(doc);
+          job.step(2, 3);
+          const map = new Map(r.applied.map((x) => [x.id, x.focusX]));
+          const main = doc.tracks.find((t) => t.kind === 'main');
+          let changed = 0;
+          for (const c of main?.clips || []) {
+            if (!map.has(c.id)) continue;
+            c.extra = { ...(c.extra || {}), focus_x: map.get(c.id) };
+            changed += 1;
+          }
+          const saved = saveTimelineDoc(ctx.params.id, { tracks: doc.tracks }, { docVersion: doc.timeline.doc_version, operator: body.operator || getOperator() });
+          job.step(3, 3);
+          return { ok: true, applied: r.applied.length, skipped: r.skipped, changed, timeline: saved.timeline };
+        },
+      });
+      ctx.json({ ok: true, jobId });
     } catch (e) { handleErr(ctx, e); }
   });
 
