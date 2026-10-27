@@ -1232,6 +1232,7 @@ async function reviewPreflight(scriptId, code) {
         operator: '制作台用户',
       });
     } catch { /* 审计失败不阻断制作 */ }
+    S.forceGate = { scriptId, code };
     if (S?.reviewAck) S.reviewAck.add(ack);
     return true;
   } catch { return true; }
@@ -1252,6 +1253,7 @@ async function runKeyframes(ids, { single = false } = {}) {
     const payload = {
       scriptId, code, shotIds: list.map((s) => s.id),
       overwrite: single ? true : !!S.overwrite,
+      ...(S.forceGate && S.forceGate.code === code ? { force: true } : {}),
     };
     let r = await ctxRef.api.post('/api/render/keyframes', payload);
     if (r.needConfirm) {
@@ -1307,7 +1309,7 @@ async function runVideos(ids, { single = false, chained = false } = {}) {
     if (!yes) return null;
   }
   try {
-    const body = { scriptId, code, shotIds: list.map((s) => s.id), overwrite: single ? true : !!S.overwrite };
+    const body = { scriptId, code, shotIds: list.map((s) => s.id), overwrite: single ? true : !!S.overwrite, ...(S.forceGate && S.forceGate.code === code ? { force: true } : {}) };
     if (S.costs.size) body.onlyCostLevels = [...S.costs];
     if (S.motionScale !== 1) body.motionScale = S.motionScale;
     // 尾帧（首尾帧过渡）：只带本批镜头已设的尾帧。单镜 → lastImage；多镜 → lastImageByShot{镜头id: 路径}
@@ -1354,7 +1356,7 @@ async function runAssemble(chained = false) {
   }
   try {
     const finish = finishPayload();
-    const r = await ctxRef.api.post('/api/render/assemble', { scriptId, code, finish });
+    const r = await ctxRef.api.post('/api/render/assemble', { scriptId, code, finish, ...(S.forceGate && S.forceGate.code === code ? { force: true } : {}) });
     toast(`已提交整集合成任务：${r.shots ?? num(st.videos)} 镜 → mp4（${finishSummary()}）`, 'ok');
     await trackJob(r.jobId, `🎞 整集合成 · ${code}`);
   } catch (e) {

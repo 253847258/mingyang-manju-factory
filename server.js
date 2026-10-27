@@ -25,6 +25,7 @@ import { guardRestoredBackup } from './src/restore-guard.js';
 import { registerDurationRoutes } from './src/routes/duration.js';
 import { registerEditRoutes } from './src/routes/edit.js';
 import { registerGateRoutes } from './src/routes/gates.js';
+import { isGatedPath, checkScriptGate, replayRequest } from './src/gate-middleware.js';
 import { ensureEditSchema } from './src/edit-timeline.js';
 import { registerNovelAiRoutes } from './src/routes/novel-ai.js';
 import { registerScriptingRoutes } from './src/routes/scripting.js';
@@ -137,12 +138,45 @@ function stubModule(app, prefix, label) {
   app.get(prefix, handler); app.post(prefix, handler); app.get(`${prefix}/:id`, handler);
 }
 
-const server = createServer((req, res) => handle(req, res, {
+const staticOpts = {
   staticMounts: [
     { prefix: '/data', dir: DATA_DIR, cache: 'public, max-age=30' },
     { prefix: '/', dir: WEB_DIR, index: '/index.html', spa: true, cache: 'no-cache' },
   ],
-}));
+};
+
+// 后端请求级闸门：渲染类 POST 在进入混淆层路由前先查剧本审核。
+// 未通过 → 409（带中文说明）；带 force:true → 放行并写审计。
+const server = createServer((req, res) => {
+  if (req.method === 'POST' && isGatedPath(req.url)) {
+    // createServer 要求 handler 返回 Promise（内部会 .catch），这里必须显式包装
+    return new Promise((resolve, reject) => {
+      const chunks = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('error', reject);
+      req.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        let body = {};
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { /* 交给原路由报参数错 */ }
+        const gate = checkScriptGate({
+          scriptId: body.scriptId || body.script_id,
+          code: body.code,
+          force: body.force === true,
+          operator: body.operator || '未署名',
+          reason: body.reason || '',
+        });
+        if (!gate.ok) {
+          res.writeHead(409, { 'content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: false, gate: 'script-lock', status: gate.status, error: gate.message }));
+          resolve();
+          return;
+        }
+        Promise.resolve(handle(replayRequest(req, buf), res, staticOpts)).then(resolve, reject);
+      });
+    });
+  }
+  return handle(req, res, staticOpts);
+});
 
 const PORT = Number(process.env.PORT || cfg.server.port || 8788);
 const HOST = process.env.HOST || cfg.server.host || '127.0.0.1';
