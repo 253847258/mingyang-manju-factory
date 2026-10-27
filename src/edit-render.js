@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { get, run } from './db.js';
+import { get, run, all } from './db.js';
 import { nowISO } from './util.js';
 import {
   ensureEditSchema, getTimelineDoc, resolveMediaPath, recordVersion, newId, EDIT_ROOT,
@@ -294,11 +294,21 @@ export async function renderTimeline(timelineId, { operator = '未署名', onSte
     filmId, tl.script_id, tl.episode_id, tl.code, relPath, Math.round(duration * 1000) / 1000, size, plan.clipCount,
     JSON.stringify({ timeline_id: timelineId, doc_version: tl.doc_version, w: width, h: height, fps: FPS, aspect, denoise }), now, timelineId, null, operator);
 
+  // 占位产物门禁：统计这一版里有多少镜头的源素材是占位/本地图
+  let placeholderClips = 0;
+  try {
+    const renderIds = [...new Set(((doc.tracks.find((t) => t.kind === 'main')?.clips) || []).map((c) => c.render_id).filter(Boolean))];
+    if (renderIds.length) {
+      const rows = all(`SELECT backend FROM shot_renders WHERE id IN (${renderIds.map(() => '?').join(',')})`, ...renderIds);
+      placeholderClips = rows.filter((r) => /placeholder|local-image/i.test(String(r.backend || ''))).length;
+    }
+  } catch { /* 统计失败不影响渲染 */ }
+
   const prev = get('SELECT MAX(version_no) n FROM edit_versions WHERE timeline_id=?', timelineId);
   const versionNo = Number(prev?.n || 0) + 1;
   run('UPDATE episode_films SET version_no=? WHERE id=?', versionNo, filmId);
   recordVersion(timelineId, { filmId, docVersion: tl.doc_version, snapshot: doc, note: `渲染 v${versionNo}`, operator });
   run('UPDATE edit_timelines SET render_id=?, updated_at=?, operator=? WHERE id=?', filmId, now, operator, timelineId);
 
-  return { ok: true, filmId, versionNo, file: relPath, absFile: outFile, duration, size, clipCount: plan.clipCount, subtitleFile: srt, width, height, aspect, denoise };
+  return { ok: true, filmId, versionNo, file: relPath, absFile: outFile, duration, size, clipCount: plan.clipCount, subtitleFile: srt, width, height, aspect, denoise, placeholder: placeholderClips > 0, placeholderClips };
 }

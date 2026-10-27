@@ -455,9 +455,12 @@ async function renderFilm() {
     }, {
       onDone: async (job) => {
         if (job.status === 'done') {
+          let res = job.result;
+          if (typeof res === 'string') { try { res = JSON.parse(res); } catch { /* ignore */ } }
           await loadVersions();
           renderAll();
-          toastOk('渲染完成，已生成新版本');
+          if (res?.placeholder) toastErr(`⚠️ 本片包含 ${res.placeholderClips} 个占位镜头（非真实 AI 画面），不能作为交付片`);
+          else toastOk('渲染完成，已生成新版本');
         }
       },
     });

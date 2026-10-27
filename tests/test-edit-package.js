@@ -39,8 +39,8 @@ run(`INSERT INTO script_episodes(id,script_id,season,episode,code,title,status,c
 for (const i of [1, 2]) {
   run(`INSERT INTO shots(id,script_id,episode_id,idx,duration,dialogue,transition,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
     `SH-P${i}`, 'SC-P1', 'EP-P1', i, 2, i === 1 ? '第一句' : '第二句', 'cut', 'done', now);
-  run(`INSERT INTO shot_renders(id,script_id,episode_id,shot_id,kind,file_path,status,picked,created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
-    `RD-P${i}`, 'SC-P1', 'EP-P1', `SH-P${i}`, 'video', path.join(srcDir, `s${i}.mp4`), 'done', 1, now);
+  run(`INSERT INTO shot_renders(id,script_id,episode_id,shot_id,kind,file_path,status,picked,backend,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+    `RD-P${i}`, 'SC-P1', 'EP-P1', `SH-P${i}`, 'video', path.join(srcDir, `s${i}.mp4`), 'done', 1, 'placeholder', now);
 }
 
 const doc = T.createTimelineFromShots({ scriptId: 'SC-P1', episodeId: 'EP-P1', code: 'S01E001', operator: '剪辑A' });
@@ -54,6 +54,7 @@ ok('准备：主轨 2 镜，首镜裁剪 0.6s', saved.tracks.find((t) => t.kind 
 console.log('\n=== 1. 导出工程包 ===');
 const pkg = P.buildEditPackage(doc.timeline.id, { operator: '剪辑A', withProxy: true, height: 540 });
 ok('生成 zip', fs.existsSync(pkg.absFile) && pkg.size > 1000, `${Math.round(pkg.size / 1024)} KB`);
+ok('工程包标注占位素材', pkg.manifest.placeholder === true && pkg.manifest.placeholder_clips === 2, JSON.stringify({ p: pkg.manifest.placeholder, n: pkg.manifest.placeholder_clips }));
 const list = spawnSync('unzip', ['-l', pkg.absFile], { encoding: 'utf8' }).stdout;
 for (const name of ['timeline.edl', 'timeline.xml', 'timeline.otio', 'manifest.json', 'manifest.csv', 'README.txt']) {
   ok(`包含 ${name}`, list.includes(name), '');

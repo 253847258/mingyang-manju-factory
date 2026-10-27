@@ -39,8 +39,8 @@ run(`INSERT INTO script_episodes(id,script_id,season,episode,code,title,status,c
 for (const i of [1, 2]) {
   run(`INSERT INTO shots(id,script_id,episode_id,idx,duration,dialogue,transition,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
     `SH-R${i}`, 'SC-R1', 'EP-R1', i, 1, i === 1 ? '第一句台词' : '第二句台词', 'cut', 'done', now);
-  run(`INSERT INTO shot_renders(id,script_id,episode_id,shot_id,kind,file_path,status,picked,created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
-    `RD-R${i}`, 'SC-R1', 'EP-R1', `SH-R${i}`, 'video', path.join(srcDir, `c${i}.mp4`), 'done', 1, now);
+  run(`INSERT INTO shot_renders(id,script_id,episode_id,shot_id,kind,file_path,status,picked,backend,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+    `RD-R${i}`, 'SC-R1', 'EP-R1', `SH-R${i}`, 'video', path.join(srcDir, `c${i}.mp4`), 'done', 1, 'placeholder', now);
 }
 
 const doc = T.createTimelineFromShots({ scriptId: 'SC-R1', episodeId: 'EP-R1', code: 'S01E001', operator: '剪辑A' });
@@ -51,6 +51,7 @@ let out = await renderTimeline(doc.timeline.id, { operator: '剪辑A' });
 ok('产出文件存在且有体积', fs.existsSync(out.absFile) && out.size > 1000, `${out.size} 字节`);
 ok('时长约 2 秒', Math.abs(out.duration - 2) < 0.2, `duration=${out.duration}`);
 ok('写入 episode_films', !!get('SELECT * FROM episode_films WHERE id=?', out.filmId), out.filmId);
+ok('占位素材被标记为不可交付', out.placeholder === true && out.placeholderClips === 2, JSON.stringify({ placeholder: out.placeholder, n: out.placeholderClips }));
 ok('写入版本记录', T.listVersions(doc.timeline.id).length === 1, '');
 
 console.log('\n=== 2. 裁剪 + dissolve ===');

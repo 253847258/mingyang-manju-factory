@@ -7,6 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { getTimelineDoc, resolveMediaPath, EDIT_ROOT } from './edit-timeline.js';
+import { all } from './db.js';
 const FPS = 30;
 
 // ---------- 自建交换格式（保留 in/out，现有 interchange 导出会丢裁剪入点） ----------
@@ -207,7 +208,7 @@ export function buildEditPackage(timelineId, { operator = '未署名', withProxy
 
   onStep({ phase: 'timeline', message: '生成 EDL / FCP7 / OTIO' });
   const title = doc.timeline.title || doc.timeline.code;
-  const all = {
+  const bundle = {
     edl: buildEdl(clips, { title, fps: FPS }),
     fcp7: buildFcp7(clips, { title, fps: FPS }),
     otio: buildOtio(clips, { title, fps: FPS }),
@@ -218,17 +219,24 @@ export function buildEditPackage(timelineId, { operator = '未署名', withProxy
   if (withProxy) proxyMap = buildProxies(doc, { height, onStep });
 
   const manifest = manifestOf(doc, clips, proxyMap, height);
+  // 占位产物门禁：交付包必须显式标注是否含占位素材
+  try {
+    const renderIds = [...new Set(((doc.tracks.find((t) => t.kind === 'main')?.clips) || []).map((c) => c.render_id).filter(Boolean))];
+    const rows = renderIds.length ? all(`SELECT backend FROM shot_renders WHERE id IN (${renderIds.map(() => '?').join(',')})`, ...renderIds) : [];
+    manifest.placeholder_clips = rows.filter((r) => /placeholder|local-image/i.test(String(r.backend || ''))).length;
+    manifest.placeholder = manifest.placeholder_clips > 0;
+  } catch { manifest.placeholder = false; manifest.placeholder_clips = 0; }
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'editpkg-'));
   try {
-    fs.writeFileSync(path.join(staging, 'timeline.edl'), all.edl, 'utf8');
-    fs.writeFileSync(path.join(staging, 'timeline.xml'), all.fcp7, 'utf8');
-    fs.writeFileSync(path.join(staging, 'timeline.otio'), all.otio, 'utf8');
+    fs.writeFileSync(path.join(staging, 'timeline.edl'), bundle.edl, 'utf8');
+    fs.writeFileSync(path.join(staging, 'timeline.xml'), bundle.fcp7, 'utf8');
+    fs.writeFileSync(path.join(staging, 'timeline.otio'), bundle.otio, 'utf8');
     fs.writeFileSync(path.join(staging, 'timeline.json'), JSON.stringify(doc, null, 2), 'utf8');
     fs.writeFileSync(path.join(staging, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
     fs.writeFileSync(path.join(staging, 'manifest.csv'), csvOf(manifest), 'utf8');
     fs.writeFileSync(path.join(staging, 'README.txt'), [
       `后期工程包 · ${manifest.code}`,
-      `时间线 ${manifest.timeline_id} · v${manifest.doc_version} · ${manifest.clip_count} 个片段 · ${all.totalSeconds}s`,
+      `时间线 ${manifest.timeline_id} · v${manifest.doc_version} · ${manifest.clip_count} 个片段 · ${bundle.totalSeconds}s`,
       '',
       '怎么用：',
       '1) 剪映专业版 / Premiere / DaVinci / FCP：导入 timeline.xml（FCP7）或 timeline.otio',
@@ -242,6 +250,7 @@ export function buildEditPackage(timelineId, { operator = '未署名', withProxy
       '  timeline.json  系统内部时间线（含画中画/字幕/音量）',
       '  manifest.json  素材映射（源文件 ↔ 代理）',
       '  manifest.csv   同上，表格版',
+      ...(manifest.placeholder ? ['', `⚠️ 警告：本包包含 ${manifest.placeholder_clips} 个占位镜头（backend=placeholder/local-image），不可作为最终交付片。`] : []),
     ].join('\n'), 'utf8');
 
     if (proxyMap.size) {
@@ -268,7 +277,7 @@ export function buildEditPackage(timelineId, { operator = '未署名', withProxy
       size,
       clipCount: clips.length,
       proxyCount: proxyMap.size,
-      totalSeconds: all.totalSeconds,
+      totalSeconds: bundle.totalSeconds,
       entries,
       manifest,
       operator,

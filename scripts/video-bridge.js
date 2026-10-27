@@ -38,6 +38,27 @@ export function normalizeVideoBody(body = {}) {
   return { model, content, ratio: String(body.ratio || 'adaptive'), duration };
 }
 
+// 把厂商错误翻译成系统能看懂、用户能执行的中文提示
+export function translateArkError(status, text) {
+  const raw = String(text || '');
+  if (/SetLimitExceeded|Safe Experience Mode/i.test(raw)) {
+    return {
+      status: 409,
+      body: { error: { code: 'SetLimitExceeded', message: '账号额度上限：该视频模型已被「Safe Experience Mode」暂停。请到火山方舟控制台 → 模型开通 → 调整或关闭体验模式上限后重试' } },
+    };
+  }
+  if (/SensitiveContentDetected|PrivacyInformation|real person/i.test(raw)) {
+    return {
+      status: 409,
+      body: { error: { code: 'ContentModeration', message: '内容审核未通过：首帧可能被识别为真人。请改用动漫化/风格化人设，或换一张非真人首帧' } },
+    };
+  }
+  if (/InvalidParameter/i.test(raw)) {
+    return { status: 400, body: { error: { code: 'InvalidParameter', message: `视频参数不合法：${raw.slice(0, 240)}` } } };
+  }
+  return null;
+}
+
 const send = (res, code, obj) => {
   res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(obj));
@@ -64,6 +85,8 @@ const server = http.createServer(async (req, res) => {
         body: JSON.stringify(payload),
       });
       const text = await r.text();
+      const tr = translateArkError(r.status, text);
+      if (tr) return send(res, tr.status, tr.body);
       res.writeHead(r.status, { 'content-type': 'application/json; charset=utf-8' });
       return res.end(text);
     } catch (e) {
@@ -76,6 +99,8 @@ const server = http.createServer(async (req, res) => {
     try {
       const r = await fetch(`${CREATE}/${encodeURIComponent(m[1])}`, { headers: { authorization: `Bearer ${key}` } });
       const text = await r.text();
+      const tr = translateArkError(r.status, text);
+      if (tr) return send(res, tr.status, tr.body);
       res.writeHead(r.status, { 'content-type': 'application/json; charset=utf-8' });
       return res.end(text);
     } catch (e) {
