@@ -21,7 +21,7 @@ const CINEMATIC_SUFFIX = ', cinematic film still, photorealistic, natural skin t
 
 const clamp = (n, a, b) => Math.min(b, Math.max(a, Number(n) || a));
 
-async function generate({ prompt, width, height, seed, model, style }) {
+async function generate({ prompt, width, height, seed, model, style, dryRun }) {
   const w = clamp(width, 256, 1536);
   const h = clamp(height, 256, 1536);
   const s = Number.isFinite(Number(seed)) ? Number(seed) : Math.floor(Math.random() * 1e9);
@@ -32,6 +32,8 @@ async function generate({ prompt, width, height, seed, model, style }) {
   const tr = hasCjk ? toEnglishPromptWithStats(rawPrompt) : { prompt: rawPrompt, unknownCount: 0 };
   const basePrompt = tr.prompt || rawPrompt;
   const finalPrompt = useStyle === 'cinematic' ? `${basePrompt}${CINEMATIC_SUFFIX}` : basePrompt;
+  // dryRun：只返回清洗后的提示词，不请求外部引擎（用于验收/排障）
+  if (dryRun) return { ok: true, dryRun: true, promptUsed: finalPrompt, width: w, height: h, style: useStyle || 'default', translatedFrom: hasCjk ? 'zh' : null };
   const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}`
     + `?width=${w}&height=${h}&seed=${s}&nologo=true&model=${encodeURIComponent(model || MODEL)}`;
   const ac = new AbortController();
@@ -60,7 +62,7 @@ async function generate({ prompt, width, height, seed, model, style }) {
       .toBuffer();
   } catch { /* sharp 不可用时保留原图 */ }
 
-  return { ok: true, image: `data:image/jpeg;base64,${buf.toString('base64')}`, width: w, height: h, seed: s, style: useStyle || 'default', translatedFrom: hasCjk ? 'zh' : null, unknownCount: tr.unknownCount || 0, backend: `pollinations-${model || MODEL}` };
+  return { ok: true, image: `data:image/jpeg;base64,${buf.toString('base64')}`, width: w, height: h, seed: s, style: useStyle || 'default', translatedFrom: hasCjk ? 'zh' : null, unknownCount: tr.unknownCount || 0, promptUsed: finalPrompt, backend: `pollinations-${model || MODEL}` };
 }
 
 const server = http.createServer(async (req, res) => {
