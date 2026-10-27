@@ -64,7 +64,7 @@ function buildSrt(timelineId, subtitleClips) {
  * 同步构建 ffmpeg 参数（纯函数，便于单测）
  * doc: getTimelineDoc() 的返回；opts.mediaExists: (p)=>bool
  */
-export function buildRenderPlan(doc, { subtitleFile = null, outFile = 'out.mp4', mediaExists = (p) => fs.existsSync(p), width = W, height = H, denoise = false, subtitleFontSize = 22, subtitleMarginV = 40, smartCrop = false } = {}) {
+export function buildRenderPlan(doc, { subtitleFile = null, outFile = 'out.mp4', mediaExists = (p) => fs.existsSync(p), width = W, height = H, denoise = false, subtitleFontSize = 22, subtitleMarginV = 40, smartCrop = false, fps = FPS, profile = 'standard' } = {}) {
   const main = doc.tracks.find((t) => t.kind === 'main');
   if (!main || !main.clips.length) throw new Error('主轨为空，无法渲染');
   const clips = [...main.clips].sort((a, b) => a.order_index - b.order_index);
@@ -112,9 +112,9 @@ export function buildRenderPlan(doc, { subtitleFile = null, outFile = 'out.mp4',
       const cw = Math.max(1, Math.min(sw, Math.round((sh * 9) / 16)));
       const fx = Math.max(0, Math.min(1, Number(c.extra?.focus_x ?? 0.5)));
       const cx = Math.round((sw - cw) * fx);
-      vf = `trim=start=${inSec}:end=${outSec},setpts=PTS-STARTPTS,crop=${cw}:${sh}:${cx}:0,scale=${width}:${height},setsar=1,fps=${FPS}`;
+      vf = `trim=start=${inSec}:end=${outSec},setpts=PTS-STARTPTS,crop=${cw}:${sh}:${cx}:0,scale=${width}:${height},setsar=1,fps=${fps}`;
     } else {
-      vf = `trim=start=${inSec}:end=${outSec},setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${FPS}`;
+      vf = `trim=start=${inSec}:end=${outSec},setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${fps}`;
     }
     if (c.transition_in === 'fade-to-black') vf += ',fade=t=in:st=0:d=0.4,fade=t=out:st=' + Math.max(0, dur - 0.4).toFixed(3) + ':d=0.4';
     filters.push(`[${index}:v]${vf}[v${i}]`);
@@ -161,6 +161,12 @@ export function buildRenderPlan(doc, { subtitleFile = null, outFile = 'out.mp4',
     videoDur = acc;
   }
 
+  // 电影化：轻微对比/饱和度/伽马 + 胶片颗粒（在叠加与字幕之前处理）
+  if (profile === 'cinematic') {
+    filters.push(`[${vOut}]eq=contrast=1.06:saturation=1.04:gamma=0.98,noise=alls=4:allf=t[vcinema]`);
+    vOut = 'vcinema';
+  }
+
   // 画中画轨
   const overlays = doc.tracks.filter((t) => t.kind === 'overlay' && t.enabled !== 0);
   for (const [ti, track] of overlays.entries()) {
@@ -177,7 +183,7 @@ export function buildRenderPlan(doc, { subtitleFile = null, outFile = 'out.mp4',
       const y = String(c.extra?.y || '40');
       const { index } = addInput(abs);
       const label = `ov${ti}_${ci}`;
-      filters.push(`[${index}:v]trim=start=${inSec}:end=${outSec},setpts=PTS-STARTPTS,scale=iw*${scale}:-1,setsar=1,fps=${FPS},format=rgba,colorchannelmixer=aa=${opacity}[${label}]`);
+      filters.push(`[${index}:v]trim=start=${inSec}:end=${outSec},setpts=PTS-STARTPTS,scale=iw*${scale}:-1,setsar=1,fps=${fps},format=rgba,colorchannelmixer=aa=${opacity}[${label}]`);
       const next = `vb${ti}_${ci}`;
       filters.push(`[${vOut}][${label}]overlay=${x}:${y}:enable='between(t,${startSec.toFixed(3)},${(startSec + dur).toFixed(3)})'[${next}]`);
       vOut = next;
@@ -220,7 +226,8 @@ export function buildRenderPlan(doc, { subtitleFile = null, outFile = 'out.mp4',
   // 先 apad 补静音再 atrim 到视频时长，保证两条流严格对齐。
   // 注意：整条音频都是纯静音时，loudnorm 会产出非法采样帧、AAC 直接报 Invalid argument。
   // 因此「没有任何真实音源」时跳过 loudnorm/降噪，只做等长收口。
-  const proc = anyAudio ? `${denoise ? 'afftdn=nf=-25,highpass=f=80,' : ''}loudnorm=I=-16:TP=-1.5:LRA=11,` : '';
+  const targetLufs = profile === 'cinematic' ? -14 : -16;
+  const proc = anyAudio ? `${denoise ? 'afftdn=nf=-25,highpass=f=80,' : ''}loudnorm=I=${targetLufs}:TP=-1.5:LRA=11,` : '';
   filters.push(`[${aOut}]${proc}apad,atrim=0:${videoDur.toFixed(3)},asetpts=PTS-STARTPTS[aout]`);
 
   const args = [
@@ -228,13 +235,14 @@ export function buildRenderPlan(doc, { subtitleFile = null, outFile = 'out.mp4',
     ...inputs,
     '-filter_complex', filters.join(';'),
     '-map', `[${vOut}]`, '-map', '[aout]',
+    '-r', String(fps),
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
     '-movflags', '+faststart',
     '-t', videoDur.toFixed(3),
     outFile,
   ];
-  return { args, durationSec: videoDur, clipCount: clips.length, filters, inputs };
+  return { args, durationSec: videoDur, clipCount: clips.length, filters, inputs, fps, profile };
 }
 
 function runFfmpeg(args, { onStep } = {}) {
@@ -253,7 +261,7 @@ function runFfmpeg(args, { onStep } = {}) {
 
 const ASPECTS = { '16:9': [1920, 1080], '9:16': [1080, 1920], '1:1': [1080, 1080] };
 
-export async function renderTimeline(timelineId, { operator = '未署名', onStep = () => {}, denoise = false, aspect = '16:9' } = {}) {
+export async function renderTimeline(timelineId, { operator = '未署名', onStep = () => {}, denoise = false, aspect = '16:9', profile = 'standard' } = {}) {
   ensureEditSchema();
   const doc = getTimelineDoc(timelineId);
   if (!doc) throw new Error('时间线不存在');
@@ -277,6 +285,8 @@ export async function renderTimeline(timelineId, { operator = '未署名', onSte
     subtitleFontSize: vertical ? 18 : 22,
     subtitleMarginV: vertical ? 140 : 40,
     smartCrop: aspect === '9:16',
+    profile,
+    fps: profile === 'cinematic' ? 24 : FPS,
   });
   onStep({ phase: 'render', message: `正在渲染 ${plan.clipCount} 个镜头（约 ${plan.durationSec.toFixed(1)} 秒）` });
   await runFfmpeg(plan.args, { onStep });
@@ -310,5 +320,5 @@ export async function renderTimeline(timelineId, { operator = '未署名', onSte
   recordVersion(timelineId, { filmId, docVersion: tl.doc_version, snapshot: doc, note: `渲染 v${versionNo}`, operator });
   run('UPDATE edit_timelines SET render_id=?, updated_at=?, operator=? WHERE id=?', filmId, now, operator, timelineId);
 
-  return { ok: true, filmId, versionNo, file: relPath, absFile: outFile, duration, size, clipCount: plan.clipCount, subtitleFile: srt, width, height, aspect, denoise, placeholder: placeholderClips > 0, placeholderClips };
+  return { ok: true, filmId, versionNo, file: relPath, absFile: outFile, duration, size, clipCount: plan.clipCount, subtitleFile: srt, width, height, aspect, denoise, profile, placeholder: placeholderClips > 0, placeholderClips };
 }

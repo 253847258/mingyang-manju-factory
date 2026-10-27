@@ -14,14 +14,18 @@ const PORT = Number(process.env.IMAGE_BRIDGE_PORT || 8791);
 const HOST = process.env.IMAGE_BRIDGE_HOST || '127.0.0.1';
 const MODEL = process.env.IMAGE_BRIDGE_MODEL || 'flux';
 const TIMEOUT_MS = Number(process.env.IMAGE_BRIDGE_TIMEOUT || 120000);
+const DEFAULT_STYLE = process.env.IMAGE_BRIDGE_STYLE || '';
+const CINEMATIC_SUFFIX = ', cinematic film still, photorealistic, natural skin texture, subtle film grain, shallow depth of field, ARRI Alexa 35mm, dramatic key light, color graded, 24fps motion feel';
 
 const clamp = (n, a, b) => Math.min(b, Math.max(a, Number(n) || a));
 
-async function generate({ prompt, width, height, seed, model }) {
+async function generate({ prompt, width, height, seed, model, style }) {
   const w = clamp(width, 256, 1536);
   const h = clamp(height, 256, 1536);
   const s = Number.isFinite(Number(seed)) ? Number(seed) : Math.floor(Math.random() * 1e9);
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(String(prompt || 'cinematic scene'))}`
+  const useStyle = style || DEFAULT_STYLE;
+  const finalPrompt = useStyle === 'cinematic' ? `${String(prompt || 'cinematic scene')}${CINEMATIC_SUFFIX}` : String(prompt || 'cinematic scene');
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}`
     + `?width=${w}&height=${h}&seed=${s}&nologo=true&model=${encodeURIComponent(model || MODEL)}`;
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), TIMEOUT_MS);
@@ -49,7 +53,7 @@ async function generate({ prompt, width, height, seed, model }) {
       .toBuffer();
   } catch { /* sharp 不可用时保留原图 */ }
 
-  return { ok: true, image: `data:image/jpeg;base64,${buf.toString('base64')}`, width: w, height: h, seed: s, backend: `pollinations-${model || MODEL}` };
+  return { ok: true, image: `data:image/jpeg;base64,${buf.toString('base64')}`, width: w, height: h, seed: s, style: useStyle || 'default', backend: `pollinations-${model || MODEL}` };
 }
 
 const server = http.createServer(async (req, res) => {

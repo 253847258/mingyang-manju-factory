@@ -184,6 +184,9 @@ function renderBar() {
     h('label', { class: 'ed-muted', style: { display: 'flex', alignItems: 'center', gap: '4px' } }, [
       h('input', { type: 'checkbox', checked: S.denoise ? '' : null, onchange: (e) => { S.denoise = e.target.checked; } }), '降噪',
     ]),
+    h('label', { class: 'ed-muted', style: { display: 'flex', alignItems: 'center', gap: '4px' }, title: '24fps + 胶片颗粒 + 电影调色' }, [
+      h('input', { type: 'checkbox', checked: S.cinematic ? '' : null, onchange: (e) => { S.cinematic = e.target.checked; } }), '电影感',
+    ]),
     h('button', { class: 'ed-btn ed-primary', disabled: S.doc?.timeline.status === 'locked' ? '' : null, onclick: renderFilm }, ['🎬 渲染成片']),
     h('button', { class: 'ed-btn', onclick: openAiPanel }, ['🤖 AI 精修']),
     h('button', { class: 'ed-btn', onclick: exportPackage }, ['📦 工程包']),
@@ -446,7 +449,7 @@ async function saveDoc() {
 async function renderFilm() {
   if (S.dirty && !(await saveDoc())) return;
   try {
-    const r = await ctxRef.api.post(`/api/edit/timelines/${S.doc.timeline.id}/render`, { operator: S.operator, aspect: S.aspect, denoise: S.denoise });
+    const r = await ctxRef.api.post(`/api/edit/timelines/${S.doc.timeline.id}/render`, { operator: S.operator, aspect: S.aspect, denoise: S.denoise, profile: S.cinematic ? 'cinematic' : 'standard' });
     if (!r.jobId) return;
     toastOk('渲染已提交，正在后台处理…');
     stopJob?.();
@@ -711,7 +714,7 @@ function updatePlayhead() { /* 预留：时间线播放头 */ }
 // ---------------- 生命周期 ----------------
 export async function mount(el, ctx) {
   root = el; ctxRef = ctx;
-  S = { enabled: false, episodes: [], doc: null, selected: null, tab: 'props', comments: [], versions: [], films: [], audit: [], currentMs: 0, aspect: '16:9', denoise: false };
+  S = { enabled: false, episodes: [], doc: null, selected: null, tab: 'props', comments: [], versions: [], films: [], audit: [], currentMs: 0, aspect: '16:9', denoise: false, cinematic: false };
   injectStyle();
   root.innerHTML = '';
   const wrap = h('div', { class: 'ed-wrap' });

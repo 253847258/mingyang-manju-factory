@@ -74,6 +74,14 @@ const st = JSON.parse(vp.stdout || '{}').streams?.[0];
 ok('输出 1080x1920', st && st.width === 1080 && st.height === 1920, `${st?.width}x${st?.height}`);
 ok('竖屏版本已落库', T.listVersions(doc.timeline.id).length === 3, '');
 
+console.log('\n=== 4. 电影感（24fps + 颗粒 + 调色）===');
+out = await renderTimeline(doc.timeline.id, { operator: '剪辑A', aspect: '16:9', profile: 'cinematic' });
+const fp = JSON.parse(spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=r_frame_rate', '-of', 'json', out.absFile], { encoding: 'utf8' }).stdout || '{}');
+const st2 = fp.streams?.[0];
+ok('输出 24fps', st2?.r_frame_rate === '24/1', st2?.r_frame_rate);
+ok('结果标记 cinematic', out.profile === 'cinematic', out.profile);
+ok('电影感版本已落库', T.listVersions(doc.timeline.id).length === 4, '');
+
 console.log(`\n=== 结果：${pass} 通过 / ${fail} 失败 ===`);
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* ignore */ }
 process.exit(fail ? 1 : 0);
