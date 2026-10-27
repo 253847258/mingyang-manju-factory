@@ -118,6 +118,7 @@ export function registerEditRoutes(app) {
             operator,
             denoise: body.denoise === true,
             aspect: ['16:9', '9:16', '1:1'].includes(body.aspect) ? body.aspect : '16:9',
+            profile: body.profile === 'cinematic' ? 'cinematic' : 'standard',
             letterbox: body.letterbox === true,
             lut: typeof body.lut === 'string' ? body.lut.trim() : '',
             onStep: (s) => { if (s.message) job.log(s.message); },
