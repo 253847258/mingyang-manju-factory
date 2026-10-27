@@ -25,7 +25,7 @@ import { guardRestoredBackup } from './src/restore-guard.js';
 import { registerDurationRoutes } from './src/routes/duration.js';
 import { registerEditRoutes } from './src/routes/edit.js';
 import { registerGateRoutes } from './src/routes/gates.js';
-import { isGatedPath, checkScriptGate, replayRequest } from './src/gate-middleware.js';
+import { isGatedPath, checkScriptGate, checkContractGate, replayRequest } from './src/gate-middleware.js';
 import { ensureEditSchema } from './src/edit-timeline.js';
 import { registerNovelAiRoutes } from './src/routes/novel-ai.js';
 import { registerScriptingRoutes } from './src/routes/scripting.js';
@@ -168,6 +168,19 @@ const server = createServer((req, res) => {
         if (!gate.ok) {
           res.writeHead(409, { 'content-type': 'application/json; charset=utf-8' });
           res.end(JSON.stringify({ ok: false, gate: 'script-lock', status: gate.status, error: gate.message }));
+          resolve();
+          return;
+        }
+        const contractMode = String(cfg.gates?.contractMode || 'warn');
+        const cgate = checkContractGate({
+          scriptId: body.scriptId || body.script_id,
+          code: body.code,
+          mode: contractMode,
+          ack: body.ackContract === true || body.force === true,
+        });
+        if (!cgate.ok) {
+          res.writeHead(409, { 'content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: false, gate: 'shot-contract', mode: cgate.mode, error: cgate.message || '镜头契约不达标', issues: cgate.issues, summary: cgate.summary }));
           resolve();
           return;
         }

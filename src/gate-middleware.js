@@ -3,8 +3,9 @@
 // 强制继续必须带 force:true，并写审计。
 
 import { PassThrough } from 'node:stream';
-import { get, run } from './db.js';
+import { all, get, run } from './db.js';
 import { nowISO } from './util.js';
+import { validateShots } from './shot-contract.js';
 
 export const GATED_PATHS = Object.freeze([
   '/api/render/keyframes',
@@ -40,6 +41,24 @@ export function checkScriptGate({ scriptId, code, force = false, operator = '未
       JSON.stringify({ scriptId, code, status, reason: String(reason || '').slice(0, 500) }), nowISO());
   } catch { /* 审计失败不阻断 */ }
   return { ok: true, forced: true, status };
+}
+
+// 镜头契约闸门：warn（默认放行）/ confirm（需 ackContract）/ strict（硬拦）
+export function checkContractGate({ scriptId, code, mode = 'warn', ack = false } = {}) {
+  if (!scriptId || !code) return { ok: true, skipped: true, reason: 'missing-script-or-code' };
+  const ep = get('SELECT * FROM script_episodes WHERE script_id=? AND code=?', scriptId, code);
+  if (!ep) return { ok: true, skipped: true, reason: 'episode-not-found' };
+  const shots = requireShots(ep.id, scriptId);
+  const result = validateShots(shots);
+  if (result.ok) return { ok: true, contractOk: true, mode };
+  const issues = result.issues;
+  if (mode === 'strict') return { ok: false, blocked: true, code: 'shot-contract', mode, issues, summary: result.summary };
+  if (mode === 'confirm' && !ack) return { ok: false, blocked: true, code: 'shot-contract', mode, issues, summary: result.summary, message: '镜头契约不达标，需带 ackContract:true 明确确认后才放行' };
+  return { ok: true, contractOk: false, mode, issues, summary: result.summary, acknowledged: !!ack };
+}
+
+function requireShots(episodeId, scriptId) {
+  try { return all('SELECT * FROM shots WHERE episode_id=? AND script_id=? ORDER BY idx', episodeId, scriptId); } catch { return []; }
 }
 
 // 把已读出的 body 重新包装成可读流，交给原 handler

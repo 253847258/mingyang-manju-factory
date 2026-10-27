@@ -14,7 +14,7 @@ fs.writeFileSync(process.env.FACTORY_CONFIG, JSON.stringify({ llm: { provider: '
 const { migrate, run, get } = await import('../src/db.js');
 const { ensureEditSchema } = await import('../src/edit-timeline.js');
 const { ensureReviewSchema } = await import('../src/script-review.js');
-const { isGatedPath, checkScriptGate, replayRequest } = await import('../src/gate-middleware.js');
+const { isGatedPath, checkScriptGate, checkContractGate, replayRequest } = await import('../src/gate-middleware.js');
 const { nowISO } = await import('../src/util.js');
 
 migrate(); ensureReviewSchema(); ensureEditSchema();
@@ -44,7 +44,23 @@ run("UPDATE script_episodes SET review_status='approved' WHERE id='EP-M1'");
 r = checkScriptGate({ scriptId: 'SC-M', code: 'S01E001' });
 ok('approved 放行', r.ok === true && r.approved === true, r.status);
 
-console.log('\n=== 3. body 重放 ===');
+console.log('\n=== 3. 镜头契约三档 ===');
+let cg = checkContractGate({ scriptId: 'SC-M', code: 'S01E001', mode: 'warn' });
+ok('warn：放行但标记不达标', cg.ok === true && cg.contractOk === false, `mode=${cg.mode}`);
+cg = checkContractGate({ scriptId: 'SC-M', code: 'S01E001', mode: 'confirm' });
+ok('confirm：未确认时阻断', cg.ok === false && cg.code === 'shot-contract', '');
+cg = checkContractGate({ scriptId: 'SC-M', code: 'S01E001', mode: 'confirm', ack: true });
+ok('confirm：确认后放行', cg.ok === true && cg.acknowledged === true, '');
+cg = checkContractGate({ scriptId: 'SC-M', code: 'S01E001', mode: 'strict' });
+ok('strict：直接阻断', cg.ok === false && cg.code === 'shot-contract', '');
+for (let i = 1; i <= 10; i += 1) {
+  run('INSERT INTO shots(id,script_id,episode_id,idx,duration,dialogue,prompt_pos,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)',
+    `SH-C${i}`, 'SC-M', 'EP-M1', i, 4, '', 'cinematic wide shot', 'draft', now);
+}
+cg = checkContractGate({ scriptId: 'SC-M', code: 'S01E001', mode: 'strict' });
+ok('合规分镜在 strict 下放行', cg.ok === true && cg.contractOk === true, '');
+
+console.log('\n=== 4. body 重放 ===');
 const req = { method: 'POST', url: '/api/render/keyframes', headers: { 'content-type': 'application/json' }, httpVersion: '1.1', socket: {}, connection: {} };
 const stream = replayRequest(req, Buffer.from('{"scriptId":"SC-M","code":"S01E001"}'));
 let buf = '';
