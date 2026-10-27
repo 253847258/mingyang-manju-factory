@@ -17,7 +17,7 @@ const FB_STYLES = [
   { id: 'retro-cel', name: '复古赛璐璐' }, { id: 'dark-gothic', name: '暗黑哥特奇幻' },
 ];
 const FB_FORMATS = [
-  { id: 'manju', name: '竖屏漫剧（1-3 分钟/集）', defaultEpisodeSeconds: 120, defaultEpisodes: 100 },
+  { id: 'manju', name: '竖屏漫剧（1-3 分钟/集）', defaultEpisodeSeconds: 60, defaultEpisodes: 100 },
   { id: 'movie', name: '电影长片（90-120 分钟）', defaultEpisodeSeconds: 5400, defaultEpisodes: 1 },
   { id: 'tv', name: '横屏电视剧/网剧（40-45 分钟/集）', defaultEpisodeSeconds: 2600, defaultEpisodes: 24 },
   { id: 'short', name: '短视频切片（30-60 秒）', defaultEpisodeSeconds: 45, defaultEpisodes: 200 },
@@ -214,7 +214,7 @@ async function selectScript(id, silent) {
     S.shotPage = 0;
     S.form = {
       novelId: r.script.novel_id || '', format: r.script.format || 'manju', styleId: r.script.style_id || 'jp-anime',
-      episodeSeconds: r.script.episode_seconds || 120, episodesPerSeason: r.script.episodes_per_season || 100,
+      episodeSeconds: r.script.episode_seconds || 60, episodesPerSeason: r.script.episodes_per_season || 100,
       seasons: r.script.seasons || 1, title: r.script.title || '',
       skillDocPath: r.script.skill_doc_path || '', skillDocName: r.script.skill_doc_name || '',
       instruction: '', overwrite: false,
@@ -366,7 +366,7 @@ function renderStage1() {
         ${DURATION_PRESETS.map((p) => `<span class="sc-chip${Number(f.episodeSeconds) === p.v ? ' sc-on' : ''}" data-act="preset-dur" data-v="${p.v}">${esc(p.label)}</span>`).join('')}
         <input class="sc-input" style="width:110px" type="number" min="15" data-form="episodeSeconds" value="${attr(f.episodeSeconds)}"/>
       </div>
-      <span class="sc-side-sub">当前：${fmtSec(f.episodeSeconds)}／集 ·（40 分钟 = 2400 秒，90 分钟 = 5400 秒）</span>
+      <span class="sc-side-sub">当前：${fmtSec(f.episodeSeconds)}／集 · 建议 8–12 镜；60 秒集约 5–8 秒/镜（40 分钟 = 2400 秒，90 分钟 = 5400 秒）</span>
     </div>
 
     <div class="sc-split"></div>
@@ -432,6 +432,7 @@ function renderStage2() {
       <label class="sc-inline"><input type="checkbox" data-form="overwrite"${S.form?.overwrite ? ' checked' : ''}/> 覆盖已有规划</label>
       <button class="sc-btn sc-primary" data-act="plan">生成 / 更新分集规划</button>
       <button class="sc-btn" data-act="sb-all">全部生成分镜（异步任务）</button>
+      <button class="sc-btn" data-act="norm-preview" title="只预览：把本集镜头压/补到 8–12 镜，不改库">📏 预览镜头规范（8–12）</button>
     </div>
     <div id="sc-job-plan">${renderJobBox('plan')}</div>
     <div class="sc-split"></div>
@@ -699,6 +700,7 @@ function onClick(e) {
     'save-and-plan': () => saveConfig(true),
     plan: () => planEpisodes(),
     'sb-all': () => storyboard({ all: true }),
+    'norm-preview': () => previewNormalize(),
     'gen-sb': () => storyboard({ episode: code }),
     'gen-ep': () => genEpisode(code),
     'view-ep': () => { S.episodeCode = code; loadEpisodeShots(code, false); },
@@ -770,7 +772,7 @@ async function newScript() {
         ${formats.map((x) => `<option value="${attr(x.id)}">${esc(x.name)}</option>`).join('')}</select></div>
       <div class="sc-field"><label>画风</label><select class="sc-select" id="sc-n-style">
         ${styles.map((x) => `<option value="${attr(x.id)}">${esc(x.name)}</option>`).join('')}</select></div>
-      <div class="sc-field"><label>单集时长（秒）</label><input class="sc-input" type="number" min="15" id="sc-n-sec" value="120"/></div>
+      <div class="sc-field"><label>单集时长（秒）</label><input class="sc-input" type="number" min="15" id="sc-n-sec" value="60"/></div>
       <div class="sc-field"><label>每季集数</label><input class="sc-input" type="number" min="1" max="500" id="sc-n-eps" value="100"/></div>
       <div class="sc-field"><label>季数</label><input class="sc-input" type="number" min="1" max="50" id="sc-n-seasons" value="1"/></div>
     </div>
@@ -947,6 +949,22 @@ async function genEpisode(code) {
     toast(`${code} 剧本生成任务已提交`, 'info');
     watch('plan', r.jobId, `${code} 剧本`, async () => { await selectScript(S.current.id, true); });
   } catch (e) { toast(`生成失败：${e.message}`, 'err'); }
+}
+
+async function previewNormalize() {
+  const code = S.episodeCode;
+  if (!S.current?.id || !code) { ctxRef.toast('先选一集', 'warn'); return; }
+  try {
+    const r = await ctxRef.api.post(`/api/scripts/${S.current.id}/shots/normalize`, { episode: code, minShots: 8, maxShots: 12 });
+    if (!r.ok) { ctxRef.toast(r.error || '预览失败', 'err'); return; }
+    const box = el('div');
+    box.append(el('div', { class: 'sc-side-sub' }, [`当前 ${r.before} 镜 → 规范化后 ${r.after} 镜（目标 8–12）· 变更 ${r.totalChanges} 项`]));
+    box.append(el('div', { class: 'sc-side-sub', style: { marginTop: '6px' } }, ['这是预览，不会改库；应用功能需人工确认后启用。']));
+    for (const c of (r.changes || []).slice(0, 20)) {
+      box.append(el('div', { class: 'sc-shot-p' }, [c.type === 'merge' ? `合并 ${c.from.join(' + ')} → ${c.to}` : `拆分 ${c.from} → ${c.to.join(' + ')}`]));
+    }
+    ctxRef.modal({ title: `📏 镜头规范预览 · ${code}`, width: 640, body: box });
+  } catch (e) { ctxRef.toast(e.message, 'err'); }
 }
 
 async function storyboard({ episode, all }) {

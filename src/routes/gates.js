@@ -7,6 +7,7 @@ import { badRequest, notFound } from '../http.js';
 import { all, get, run } from '../db.js';
 import { nowISO } from '../util.js';
 import { validateShots } from '../shot-contract.js';
+import { normalizeShotCount } from '../shot-normalize.js';
 
 function episodeOf(scriptId, code) {
   const ep = get('SELECT * FROM script_episodes WHERE script_id=? AND code=?', scriptId, code);
@@ -58,6 +59,32 @@ export function registerGateRoutes(app) {
         episode: { id: ep.id, code, title: ep.title },
       });
     } catch (e) { ctx.json({ ok: false, error: e.message }, e.status || 404); }
+  });
+
+  // 镜头规范预览（只读，不写库）
+  app.post('/api/scripts/:id/shots/normalize', async (ctx) => {
+    try {
+      const scriptId = String(ctx.params.id || '');
+      const body = (await ctx.body()) || {};
+      const code = String(body.episode || body.code || '');
+      if (!code) throw badRequest('缺少 episode');
+      const ep = episodeOf(scriptId, code);
+      const shots = all('SELECT * FROM shots WHERE episode_id=? AND script_id=? ORDER BY idx', ep.id, scriptId);
+      const r = normalizeShotCount(shots, {
+        min: Number(body.minShots) || 8,
+        max: Number(body.maxShots) || 12,
+      });
+      ctx.json({
+        ok: true,
+        applied: false,
+        episode: { id: ep.id, code, title: ep.title },
+        before: r.before,
+        after: r.after,
+        inRange: r.inRange,
+        totalChanges: r.changes.length,
+        changes: r.changes,
+      });
+    } catch (e) { ctx.json({ ok: false, error: e.message }, e.status || 400); }
   });
 
   // 强制继续（写审计）
