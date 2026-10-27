@@ -22,5 +22,14 @@ ok('合法首帧保留', r.content.length === 2 && r.content[1].image_url.url.st
 r = normalizeVideoBody({ duration: 'abc', content: [text] });
 ok('非法时长回退 5 秒', r.duration === 5, `duration=${r.duration}`);
 
+r = normalizeVideoBody({ duration: 5, content: [text, { type: 'first_frame', url: 'data:image/jpeg;base64,abc' }, { type: 'last_frame', url: '' }] });
+ok('空尾帧被剔除（Kling 风格）', r.content.length === 2 && r.content.some((x) => x.type === 'first_frame') && !r.content.some((x) => x.type === 'last_frame'), `content=${r.content.map((x) => x.type).join(',')}`);
+
+r = normalizeVideoBody({ duration: 5, content: [{ type: 'text', text: '镜头(C-0001)缓慢推进' }] });
+ok('提示词实体编号被清洗', !/C-0001/.test(r.content[0].text), r.content[0].text);
+
+r = normalizeVideoBody({ duration: 5, content: [text], keyframes: { frame0: { url: 'data:image/jpeg;base64,abc' }, frame1: { url: '' } } });
+ok('Luma 空尾帧被剔除', !!r.keyframes && !!r.keyframes.frame0 && !r.keyframes.frame1, JSON.stringify(r.keyframes));
+
 console.log(`\n=== 结果：${pass} 通过 / ${fail} 失败 ===`);
 process.exit(fail ? 1 : 0);

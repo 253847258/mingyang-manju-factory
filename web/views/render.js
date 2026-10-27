@@ -1209,12 +1209,31 @@ async function reviewPreflight(scriptId, code) {
   const ack = `review-ack:${scriptId}:${code}`;
   if (S?.reviewAck?.has(ack)) return true;
   try {
-    const r = await ctxRef.api.get(`/api/scripts/${encodeURIComponent(scriptId)}/review-gate?episode=${encodeURIComponent(code)}`);
-    if (!r || !r.pending || !r.pending.length) return true;
-    const list = r.pending.map((x) => `${x.code}（${x.statusLabel}）`).join('、');
-    const yes = await ctxRef.confirm(`该集尚未审核通过：${list}。\n\n建议先在「剧本工厂 → 审核本集」走完 draft → review → approved 流程。\n\n仍要继续制作吗？（继续不会改动审核状态）`);
-    if (yes && S?.reviewAck) S.reviewAck.add(ack);
-    return Boolean(yes);
+    // 闸门一：剧本审核（未通过默认禁止开拍）
+    const g = await ctxRef.api.get(`/api/gates/episode?script_id=${encodeURIComponent(scriptId)}&code=${encodeURIComponent(code)}`);
+    // 契约：镜头数 / 时长 / 台词
+    let c = null;
+    try {
+      c = await ctxRef.api.get(`/api/gates/contract?script_id=${encodeURIComponent(scriptId)}&code=${encodeURIComponent(code)}`);
+    } catch { /* 契约接口不可用时不阻断 */ }
+
+    const problems = [];
+    if (g && g.blocked) problems.push(`⛔ 剧本未通过审核（当前：${g.episode?.status || 'draft'}）`);
+    if (c && c.contractOk === false) problems.push(`⚠️ 镜头契约不达标：${(c.issues || []).map((i) => i.message).join('；')}`);
+    if (!problems.length) return true;
+
+    const yes = await ctxRef.confirm(`${problems.join('\n')}\n\n按 V2 闸门规则，默认应先修复再开拍。\n\n点「确定」= 强制继续（会写入审计，责任自负）；点「取消」= 回去处理。`);
+    if (!yes) return false;
+    try {
+      await ctxRef.api.post('/api/gates/override', {
+        scriptId, code,
+        gate: g?.blocked ? 'script-lock' : 'shot-contract',
+        reason: problems.join('；'),
+        operator: '制作台用户',
+      });
+    } catch { /* 审计失败不阻断制作 */ }
+    if (S?.reviewAck) S.reviewAck.add(ack);
+    return true;
   } catch { return true; }
 }
 

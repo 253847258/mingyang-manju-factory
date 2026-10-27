@@ -15,6 +15,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanPrompt } from '../src/prompt-lint.js';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CONFIG = process.env.FACTORY_CONFIG || path.join(ROOT, 'config', 'config.json');
@@ -34,8 +35,23 @@ export function normalizeVideoBody(body = {}) {
   if (!Number.isFinite(duration)) duration = 5;
   duration = Math.min(30, Math.max(4, duration)); // Seedance 2.5: [4,30]；3s 镜头 → 4s
   const content = (Array.isArray(body.content) ? body.content : [])
-    .filter((x) => !(x?.type === 'image_url' && !String(x?.image_url?.url || '').trim()));
-  return { model, content, ratio: String(body.ratio || 'adaptive'), duration };
+    .map((x) => (x?.type === 'text' ? { ...x, text: cleanPrompt(x.text) } : x))
+    .filter((x) => {
+      if (!x) return false;
+      if (x.type === 'image_url') return !!String(x?.image_url?.url || '').trim();
+      if (x.type === 'first_frame' || x.type === 'last_frame') return !!String(x?.url || '').trim();
+      return true;
+    });
+  const out = { model, content, ratio: String(body.ratio || 'adaptive'), duration };
+  // Luma 风格：keyframes.frame0/frame1（空帧剔除）
+  if (body.keyframes && typeof body.keyframes === 'object') {
+    const kf = {};
+    for (const k of ['frame0', 'frame1']) {
+      if (body.keyframes[k] && String(body.keyframes[k].url || '').trim()) kf[k] = body.keyframes[k];
+    }
+    if (Object.keys(kf).length) out.keyframes = kf;
+  }
+  return out;
 }
 
 // 把厂商错误翻译成系统能看懂、用户能执行的中文提示
