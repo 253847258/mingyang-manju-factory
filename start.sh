@@ -31,8 +31,12 @@ pids_on_port() {
 }
 # ② 进程检测：只看 `node ... server.js`（本脚本自身与 node 版本探测不会被误伤）
 pids_server() {
-  ps -eo pid=,args= 2>/dev/null | awk -v me="$$" '
-    $1 != me && $2 ~ /(^|\/)node$/ && $3 ~ /(^|\/)server\.js$/ { print $1 }
+  # 只匹配「本项目的 server.js」：同机可能有别的项目也在跑 node server.js，
+  # 只看文件名会把它误判成同配置实例（macOS 无 /proc，无法再按 cwd 兜底）。
+  local root
+  root="$(pwd)"
+  ps -eo pid=,args= 2>/dev/null | awk -v me="$$" -v target="$root/server.js" '
+    $1 != me && $2 ~ /(^|\/)node$/ && index($0, target) > 0 { print $1 }
   ' | sort -u || true
 }
 
@@ -111,7 +115,7 @@ echo "启动 AI漫剧-电影视频工厂 → http://127.0.0.1:${PORT}/"
 # 若发现多实例并存，额外告警。只读 GET /api/health，不产生任何调用费用。
 (
   node -e '
-    const [port, pid] = process.argv.slice(1);
+    const [port, pid, root] = process.argv.slice(1);
     const t0 = Date.now();
     const ping = () => fetch(`http://127.0.0.1:${port}/api/health`).then((r) => r.ok).catch(() => false);
     (async () => {
@@ -124,12 +128,39 @@ echo "启动 AI漫剧-电影视频工厂 → http://127.0.0.1:${PORT}/"
         const { execFileSync } = await import("node:child_process");
         lines = execFileSync("ps", ["-eo", "pid=,args="]).toString().split("\n").filter((l) => {
           const w = l.trim().split(/\s+/);
-          return w[1] && /(^|\/)node$/.test(w[1]) && w[2] && /(^|\/)server[.]js$/.test(w[2]);
+          return w[1] && /(^|\/)node$/.test(w[1]) && w[2] && l.includes(root + "/server.js");
         });
       } catch { /* 检测不到就不报 */ }
       if (lines.length > 1) console.log(`⚠️ 警告：当前有 ${lines.length} 个 node server.js 实例在跑（配置缓存会互相覆盖 → 配置漂移），请只保留 1 个：${lines.map((l) => l.trim().split(/\s+/)[0]).join(", ")}`);
     })();
-  ' "$PORT" "$$"
+  ' "$PORT" "$$" "$(pwd)"
 ) &
+
+# ── 引擎管家：本机桥接（出图 8791 / 视频 8792）────────────────
+# 为什么放这里：出图/视频后端指向本机桥接时，桥接没起会让所有任务失败。
+# 只负责「没在跑就拉起 + 健康检查」，不 kill 任何已有进程。
+BRIDGE_DIR="$(cd "$(dirname "$0")" && pwd)"
+mkdir -p "$BRIDGE_DIR/data/logs"
+
+ensure_bridge() {
+  local label="$1" port="$2" script="$3" env_key="$4" log="$5" svc="$6"
+  if curl -s --max-time 2 "http://127.0.0.1:${port}/health" | grep -q "\"service\":\"${svc}\""; then
+    echo "ℹ️  ${label}已在运行（端口 ${port}）"
+    return 0
+  fi
+  echo "启动${label} → http://127.0.0.1:${port}/"
+  nohup env "$env_key=$port" node "$BRIDGE_DIR/$script" >> "$BRIDGE_DIR/data/logs/$log" 2>&1 &
+  for _i in $(seq 1 16); do
+    if curl -s --max-time 1 "http://127.0.0.1:${port}/health" | grep -q "\"service\":\"${svc}\""; then
+      echo "${label}已就绪（端口 ${port}）"
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "⚠️ ${label}启动超时，请查看 data/logs/$log"
+}
+
+ensure_bridge "文生图桥接" "${IMAGE_BRIDGE_PORT:-8791}" "scripts/text-to-image-bridge.js" "IMAGE_BRIDGE_PORT" "text-to-image-bridge.log" "text-to-image-bridge"
+ensure_bridge "视频适配桥" "${VIDEO_BRIDGE_PORT:-8793}" "scripts/video-bridge.js" "VIDEO_BRIDGE_PORT" "video-bridge.log" "video-bridge"
 
 PORT="$PORT" exec node server.js
