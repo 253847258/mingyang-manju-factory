@@ -118,6 +118,8 @@ export function registerEditRoutes(app) {
             operator,
             denoise: body.denoise === true,
             aspect: ['16:9', '9:16', '1:1'].includes(body.aspect) ? body.aspect : '16:9',
+            letterbox: body.letterbox === true,
+            lut: typeof body.lut === 'string' ? body.lut.trim() : '',
             onStep: (s) => { if (s.message) job.log(s.message); },
           });
           job.step(3, 4);

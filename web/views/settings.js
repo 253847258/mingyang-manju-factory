@@ -658,6 +658,60 @@ function videoCard(cfg, health) {
             renderDetail();
             toast('已套用火山方舟 Seedance 预设，请填 API Key 与模型 ID 后保存', 'ok', 4200);
           } }, ['🔥 火山方舟 Seedance']),
+          el('button', { class: 'btn xs', onclick: () => {
+            g.url = 'https://api-beijing.klingai.com/image-to-video/kling-2.5-turbo';
+            g.method = 'POST';
+            g.model = 'kling-2.5-turbo';
+            g.headers = '{"Content-Type":"application/json"}';
+            g.authHeader = 'Authorization';
+            g.authPrefix = 'Bearer ';
+            g.bodyTemplate = '{"contents":[{"type":"prompt","text":"{{prompt}}"},{"type":"first_frame","url":"{{refImage}}"},{"type":"last_frame","url":"{{lastImage}}"}],"settings":{"resolution":"1080p","duration":5},"options":{"watermark_info":{"enabled":false}}}';
+            g.responseVideoPath = 'data.0.outputs.0.url';
+            g.pollUrl = 'https://api-beijing.klingai.com/tasks?task_ids={{taskId}}';
+            g.pollStatusPath = 'data.0.status';
+            g.pollSuccessValues = 'succeeded';
+            g.pollIntervalMs = 10000;
+            g.pollMaxTimes = 90;
+            g.refImageFormat = 'base64';
+            renderDetail();
+            toast('已套用 Kling 2.5 预设，请填 API Key 后保存', 'ok', 4200);
+          } }, ['🔥 Kling 2.5']),
+          el('button', { class: 'btn xs', onclick: () => {
+            g.url = 'https://api.dev.runwayml.com/v1/image_to_video';
+            g.method = 'POST';
+            g.model = 'gen4_turbo';
+            g.headers = '{"Content-Type":"application/json","X-Runway-Version":"2024-11-06"}';
+            g.authHeader = 'Authorization';
+            g.authPrefix = 'Bearer ';
+            g.bodyTemplate = '{"model":"{{model}}","promptText":"{{prompt}}","promptImage":[{"uri":"{{refImage}}","position":"first"}],"ratio":"1280:720","duration":5}';
+            g.responseVideoPath = 'output.0';
+            g.pollUrl = 'https://api.dev.runwayml.com/v1/tasks/{{taskId}}';
+            g.pollStatusPath = 'status';
+            g.pollSuccessValues = 'SUCCEEDED';
+            g.pollIntervalMs = 5000;
+            g.pollMaxTimes = 120;
+            g.refImageFormat = 'dataurl';
+            renderDetail();
+            toast('已套用 Runway Gen-4 预设（已带版本请求头），请填 API Key 后保存', 'ok', 4200);
+          } }, ['🔥 Runway Gen-4']),
+          el('button', { class: 'btn xs', onclick: () => {
+            g.url = 'https://api.lumalabs.ai/dream-machine/v1/generations/video';
+            g.method = 'POST';
+            g.model = 'ray-2';
+            g.headers = '{"Content-Type":"application/json"}';
+            g.authHeader = 'Authorization';
+            g.authPrefix = 'Bearer ';
+            g.bodyTemplate = '{"model":"{{model}}","prompt":"{{prompt}}","aspect_ratio":"16:9","resolution":"720p","duration":"5s","keyframes":{"frame0":{"type":"image","url":"{{refImage}}"},"frame1":{"type":"image","url":"{{lastImage}}"}}}';
+            g.responseVideoPath = 'assets.video';
+            g.pollUrl = 'https://api.lumalabs.ai/dream-machine/v1/generations/{{taskId}}';
+            g.pollStatusPath = 'state';
+            g.pollSuccessValues = 'completed';
+            g.pollIntervalMs = 5000;
+            g.pollMaxTimes = 120;
+            g.refImageFormat = 'base64';
+            renderDetail();
+            toast('已套用 Luma 预设，请填 API Key 后保存', 'ok', 4200);
+          } }, ['🔥 Luma']),
           el('span', { class: 'small muted' }, ['首帧驱动；模型可填 seedance 模型 ID 或 Endpoint ID']),
         ]),
         el('div', { class: 'grid2' }, [

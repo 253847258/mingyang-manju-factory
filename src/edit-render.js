@@ -31,6 +31,18 @@ function escFilterPath(p) {
   // ffmpeg filter 参数里的路径：反斜杠、冒号、单引号转义
   return String(p).replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'");
 }
+function resolveLutFile(lut) {
+  const source = String(lut ?? '').trim();
+  if (!source) return '';
+  if (path.extname(source).toLowerCase() !== '.cube') {
+    throw new Error(`LUT 文件格式无效，仅支持 .cube 文件：${source}`);
+  }
+  const abs = path.resolve(source);
+  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+    throw new Error(`LUT 文件不存在：${source}`);
+  }
+  return abs;
+}
 const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
 
 function buildSrt(timelineId, subtitleClips) {
@@ -64,10 +76,12 @@ function buildSrt(timelineId, subtitleClips) {
  * 同步构建 ffmpeg 参数（纯函数，便于单测）
  * doc: getTimelineDoc() 的返回；opts.mediaExists: (p)=>bool
  */
-export function buildRenderPlan(doc, { subtitleFile = null, outFile = 'out.mp4', mediaExists = (p) => fs.existsSync(p), width = W, height = H, denoise = false, subtitleFontSize = 22, subtitleMarginV = 40, smartCrop = false, fps = FPS, profile = 'standard' } = {}) {
+export function buildRenderPlan(doc, { subtitleFile = null, outFile = 'out.mp4', mediaExists = (p) => fs.existsSync(p), width = W, height = H, denoise = false, subtitleFontSize = 22, subtitleMarginV = 40, smartCrop = false, fps = FPS, profile = 'standard', letterbox = false, lut = '' } = {}) {
   const main = doc.tracks.find((t) => t.kind === 'main');
   if (!main || !main.clips.length) throw new Error('主轨为空，无法渲染');
   const clips = [...main.clips].sort((a, b) => a.order_index - b.order_index);
+  const letterboxOn = letterbox === true;
+  const lutFile = resolveLutFile(lut);
   const inputs = [];
   const filters = [];
   const probes = [];
@@ -167,6 +181,12 @@ export function buildRenderPlan(doc, { subtitleFile = null, outFile = 'out.mp4',
     vOut = 'vcinema';
   }
 
+  // LUT 调色：在叠加、字幕与遮幅前应用，避免黑边和字幕被校色
+  if (lutFile) {
+    filters.push(`[${vOut}]lut3d=file='${escFilterPath(lutFile)}'[vlut]`);
+    vOut = 'vlut';
+  }
+
   // 画中画轨
   const overlays = doc.tracks.filter((t) => t.kind === 'overlay' && t.enabled !== 0);
   for (const [ti, track] of overlays.entries()) {
@@ -194,6 +214,15 @@ export function buildRenderPlan(doc, { subtitleFile = null, outFile = 'out.mp4',
   if (subtitleFile) {
     filters.push(`[${vOut}]subtitles='${escFilterPath(subtitleFile)}':force_style='FontName=Hiragino Sans GB,FontSize=${subtitleFontSize},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=${subtitleMarginV},Alignment=2'[vsub]`);
     vOut = 'vsub';
+  }
+
+  // 2.39:1 遮幅：先烧字幕再盖黑边，字幕底距由调用方上移，确保仍在有效画面内
+  if (letterboxOn) {
+    const barHeight = Math.max(0, Math.round((height - width / 2.39) / 2));
+    if (barHeight > 0) {
+      filters.push(`[${vOut}]drawbox=x=0:y=0:w=iw:h=${barHeight}:color=black:t=fill,drawbox=x=0:y=${height - barHeight}:w=iw:h=${barHeight}:color=black:t=fill[vletterbox]`);
+      vOut = 'vletterbox';
+    }
   }
 
   // 音频：主轨 concat
@@ -242,7 +271,7 @@ export function buildRenderPlan(doc, { subtitleFile = null, outFile = 'out.mp4',
     '-t', videoDur.toFixed(3),
     outFile,
   ];
-  return { args, durationSec: videoDur, clipCount: clips.length, filters, inputs, fps, profile };
+  return { args, durationSec: videoDur, clipCount: clips.length, filters, inputs, fps, profile, letterbox: letterboxOn, lut: lutFile };
 }
 
 function runFfmpeg(args, { onStep } = {}) {
@@ -261,8 +290,10 @@ function runFfmpeg(args, { onStep } = {}) {
 
 const ASPECTS = { '16:9': [1920, 1080], '9:16': [1080, 1920], '1:1': [1080, 1080] };
 
-export async function renderTimeline(timelineId, { operator = '未署名', onStep = () => {}, denoise = false, aspect = '16:9', profile = 'standard' } = {}) {
+export async function renderTimeline(timelineId, { operator = '未署名', onStep = () => {}, denoise = false, aspect = '16:9', profile = 'standard', letterbox = false, lut = '' } = {}) {
   ensureEditSchema();
+  const letterboxOn = letterbox === true;
+  const lutFile = resolveLutFile(lut);
   const doc = getTimelineDoc(timelineId);
   if (!doc) throw new Error('时间线不存在');
   const tl = doc.timeline;
@@ -283,10 +314,12 @@ export async function renderTimeline(timelineId, { operator = '未署名', onSte
   const plan = buildRenderPlan(doc, {
     subtitleFile: srt, outFile, width, height, denoise,
     subtitleFontSize: vertical ? 18 : 22,
-    subtitleMarginV: vertical ? 140 : 40,
+    subtitleMarginV: vertical ? 140 : (letterboxOn ? 170 : 40),
     smartCrop: aspect === '9:16',
     profile,
     fps: profile === 'cinematic' ? 24 : FPS,
+    letterbox: letterboxOn,
+    lut: lutFile,
   });
   onStep({ phase: 'render', message: `正在渲染 ${plan.clipCount} 个镜头（约 ${plan.durationSec.toFixed(1)} 秒）` });
   await runFfmpeg(plan.args, { onStep });
@@ -302,7 +335,7 @@ export async function renderTimeline(timelineId, { operator = '未署名', onSte
   run(`INSERT INTO episode_films(id,script_id,episode_id,code,file_path,duration,size,shot_count,backend,status,error,job_id,meta,created_at,timeline_id,version_no,parent_film_id,review_status,operator)
     VALUES(?,?,?,?,?,?,?,?,'edit-ffmpeg','done',NULL,NULL,?,?,?,?,NULL,'draft',?)`,
     filmId, tl.script_id, tl.episode_id, tl.code, relPath, Math.round(duration * 1000) / 1000, size, plan.clipCount,
-    JSON.stringify({ timeline_id: timelineId, doc_version: tl.doc_version, w: width, h: height, fps: FPS, aspect, denoise }), now, timelineId, null, operator);
+    JSON.stringify({ timeline_id: timelineId, doc_version: tl.doc_version, w: width, h: height, fps: FPS, aspect, denoise, letterbox: letterboxOn, lut: lutFile }), now, timelineId, null, operator);
 
   // 占位产物门禁：统计这一版里有多少镜头的源素材是占位/本地图
   let placeholderClips = 0;
@@ -320,5 +353,5 @@ export async function renderTimeline(timelineId, { operator = '未署名', onSte
   recordVersion(timelineId, { filmId, docVersion: tl.doc_version, snapshot: doc, note: `渲染 v${versionNo}`, operator });
   run('UPDATE edit_timelines SET render_id=?, updated_at=?, operator=? WHERE id=?', filmId, now, operator, timelineId);
 
-  return { ok: true, filmId, versionNo, file: relPath, absFile: outFile, duration, size, clipCount: plan.clipCount, subtitleFile: srt, width, height, aspect, denoise, profile, placeholder: placeholderClips > 0, placeholderClips };
+  return { ok: true, filmId, versionNo, file: relPath, absFile: outFile, duration, size, clipCount: plan.clipCount, subtitleFile: srt, width, height, aspect, denoise, profile, letterbox: letterboxOn, lut: lutFile, placeholder: placeholderClips > 0, placeholderClips };
 }

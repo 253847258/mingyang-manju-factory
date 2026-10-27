@@ -9,6 +9,7 @@
 //      IMAGE_BRIDGE_PORT=8791 node scripts/text-to-image-bridge.js
 
 import http from 'node:http';
+import { toEnglishPromptWithStats } from './prompt-bilingual.js';
 
 const PORT = Number(process.env.IMAGE_BRIDGE_PORT || 8791);
 const HOST = process.env.IMAGE_BRIDGE_HOST || '127.0.0.1';
@@ -24,7 +25,12 @@ async function generate({ prompt, width, height, seed, model, style }) {
   const h = clamp(height, 256, 1536);
   const s = Number.isFinite(Number(seed)) ? Number(seed) : Math.floor(Math.random() * 1e9);
   const useStyle = style || DEFAULT_STYLE;
-  const finalPrompt = useStyle === 'cinematic' ? `${String(prompt || 'cinematic scene')}${CINEMATIC_SUFFIX}` : String(prompt || 'cinematic scene');
+  const rawPrompt = String(prompt || 'cinematic scene');
+  // 免费引擎（flux）对中文理解差：含中文时先走本地中英转换
+  const hasCjk = /[\u4e00-\u9fff]/.test(rawPrompt);
+  const tr = hasCjk ? toEnglishPromptWithStats(rawPrompt) : { prompt: rawPrompt, unknownCount: 0 };
+  const basePrompt = tr.prompt || rawPrompt;
+  const finalPrompt = useStyle === 'cinematic' ? `${basePrompt}${CINEMATIC_SUFFIX}` : basePrompt;
   const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}`
     + `?width=${w}&height=${h}&seed=${s}&nologo=true&model=${encodeURIComponent(model || MODEL)}`;
   const ac = new AbortController();
@@ -53,7 +59,7 @@ async function generate({ prompt, width, height, seed, model, style }) {
       .toBuffer();
   } catch { /* sharp 不可用时保留原图 */ }
 
-  return { ok: true, image: `data:image/jpeg;base64,${buf.toString('base64')}`, width: w, height: h, seed: s, style: useStyle || 'default', backend: `pollinations-${model || MODEL}` };
+  return { ok: true, image: `data:image/jpeg;base64,${buf.toString('base64')}`, width: w, height: h, seed: s, style: useStyle || 'default', translatedFrom: hasCjk ? 'zh' : null, unknownCount: tr.unknownCount || 0, backend: `pollinations-${model || MODEL}` };
 }
 
 const server = http.createServer(async (req, res) => {

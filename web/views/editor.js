@@ -181,11 +181,18 @@ function renderBar() {
     h('button', { class: 'ed-btn', disabled: S.doc?.timeline.status === 'locked' ? '' : null, onclick: saveDoc }, ['💾 保存']),
     h('select', { class: 'ed-btn', title: '输出画幅', onchange: (e) => { S.aspect = e.target.value; } },
       ['16:9', '9:16', '1:1'].map((v) => h('option', { value: v, selected: S.aspect === v ? '' : null }, [v === '16:9' ? '横屏 16:9' : v === '9:16' ? '竖屏 9:16' : '方屏 1:1']))),
+    h('label', { class: 'ed-muted', style: { display: 'flex', alignItems: 'center', gap: '4px' }, title: '在画面上下添加电影宽银幕黑边' }, [
+      h('input', { type: 'checkbox', checked: S.letterbox ? '' : null, onchange: (e) => { S.letterbox = e.target.checked; } }), '2.39:1 遮幅',
+    ]),
     h('label', { class: 'ed-muted', style: { display: 'flex', alignItems: 'center', gap: '4px' } }, [
       h('input', { type: 'checkbox', checked: S.denoise ? '' : null, onchange: (e) => { S.denoise = e.target.checked; } }), '降噪',
     ]),
     h('label', { class: 'ed-muted', style: { display: 'flex', alignItems: 'center', gap: '4px' }, title: '24fps + 胶片颗粒 + 电影调色' }, [
       h('input', { type: 'checkbox', checked: S.cinematic ? '' : null, onchange: (e) => { S.cinematic = e.target.checked; } }), '电影感',
+    ]),
+    h('label', { class: 'ed-muted', style: { display: 'flex', alignItems: 'center', gap: '4px' }, title: '可选：.cube LUT 文件路径，留空表示不使用' }, [
+      'LUT 路径',
+      h('input', { class: 'ed-btn', style: { width: '190px', fontFamily: 'ui-monospace,monospace' }, placeholder: 'data/luts/filmic-teal-orange.cube', value: S.lut || '', oninput: (e) => { S.lut = e.target.value; } }),
     ]),
     h('button', { class: 'ed-btn ed-primary', disabled: S.doc?.timeline.status === 'locked' ? '' : null, onclick: renderFilm }, ['🎬 渲染成片']),
     h('button', { class: 'ed-btn', onclick: openAiPanel }, ['🤖 AI 精修']),
@@ -449,7 +456,7 @@ async function saveDoc() {
 async function renderFilm() {
   if (S.dirty && !(await saveDoc())) return;
   try {
-    const r = await ctxRef.api.post(`/api/edit/timelines/${S.doc.timeline.id}/render`, { operator: S.operator, aspect: S.aspect, denoise: S.denoise, profile: S.cinematic ? 'cinematic' : 'standard' });
+    const r = await ctxRef.api.post(`/api/edit/timelines/${S.doc.timeline.id}/render`, { operator: S.operator, aspect: S.aspect, denoise: S.denoise, letterbox: S.letterbox, lut: S.lut, profile: S.cinematic ? 'cinematic' : 'standard' });
     if (!r.jobId) return;
     toastOk('渲染已提交，正在后台处理…');
     stopJob?.();
@@ -714,7 +721,7 @@ function updatePlayhead() { /* 预留：时间线播放头 */ }
 // ---------------- 生命周期 ----------------
 export async function mount(el, ctx) {
   root = el; ctxRef = ctx;
-  S = { enabled: false, episodes: [], doc: null, selected: null, tab: 'props', comments: [], versions: [], films: [], audit: [], currentMs: 0, aspect: '16:9', denoise: false, cinematic: false };
+  S = { enabled: false, episodes: [], doc: null, selected: null, tab: 'props', comments: [], versions: [], films: [], audit: [], currentMs: 0, aspect: '16:9', denoise: false, cinematic: false, letterbox: false, lut: '' };
   injectStyle();
   root.innerHTML = '';
   const wrap = h('div', { class: 'ed-wrap' });
