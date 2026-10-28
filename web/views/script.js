@@ -955,10 +955,10 @@ async function previewNormalize() {
   const code = S.episodeCode;
   if (!S.current?.id || !code) { ctxRef.toast('先选一集', 'warn'); return; }
   try {
-    const r = await ctxRef.api.post(`/api/scripts/${S.current.id}/shots/normalize`, { episode: code, minShots: 10, maxShots: 12 });
+    const r = await ctxRef.api.post(`/api/scripts/${S.current.id}/shots/normalize`, { episode: code, minShots: 10, maxShots: 12, clampDuration: true });
     if (!r.ok) { ctxRef.toast(r.error || '预览失败', 'err'); return; }
     const box = el('div');
-    box.append(el('div', { class: 'sc-side-sub' }, [`当前 ${r.before} 镜 → 规范化后 ${r.after} 镜（目标 8–12）· 变更 ${r.totalChanges} 项`]));
+    box.append(el('div', { class: 'sc-side-sub' }, [`当前 ${r.before} 镜 → 规范化后 ${r.after} 镜（目标 10–12）· 总时长 ${fmtSec(r.totalDuration || 0)} · 钳时长 ${r.clamped || 0} 镜 · 变更 ${r.totalChanges} 项`]));
     box.append(el('div', { class: 'sc-side-sub', style: { marginTop: '6px' } }, ['这是预览，不会改库；应用功能需人工确认后启用。']));
     for (const c of (r.changes || []).slice(0, 20)) {
       box.append(el('div', { class: 'sc-shot-p' }, [c.type === 'merge' ? `合并 ${c.from.join(' + ')} → ${c.to}` : `拆分 ${c.from} → ${c.to.join(' + ')}`]));
@@ -968,9 +968,9 @@ async function previewNormalize() {
       box.append(el('button', {
         class: 'sc-btn sc-primary', style: { marginTop: '10px' },
         onclick: async () => {
-          if (!(await ctxRef.confirm(`将把 ${r.before} 镜合并/拆分为 ${r.after} 镜。\n\n会直接改库（应用前会自动备份数据库），合并后的镜头不可自动还原。继续？`))) return;
+          if (!(await ctxRef.confirm(`将把 ${r.before} 镜合并/拆分为 ${r.after} 镜，并把单镜时长钳到 5–6 秒、本集时长改为约 ${r.totalDuration} 秒。\n\n会直接改库（应用前会自动备份数据库），合并后的镜头不可自动还原。继续？`))) return;
           try {
-            const rr = await ctxRef.api.post(`/api/scripts/${S.current.id}/shots/normalize`, { episode: code, minShots: 10, maxShots: 12, apply: true, confirm: true, operator: '剧本页用户' });
+            const rr = await ctxRef.api.post(`/api/scripts/${S.current.id}/shots/normalize`, { episode: code, minShots: 10, maxShots: 12, clampDuration: true, apply: true, confirm: true, operator: '剧本页用户' });
             if (rr.ok && rr.applied) {
               m.close();
               await selectScript(S.current.id, true);

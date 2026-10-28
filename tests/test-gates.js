@@ -11,7 +11,7 @@ process.env.FACTORY_CONFIG = path.join(TMP, 'config.json');
 fs.mkdirSync(process.env.FACTORY_DATA_DIR, { recursive: true });
 fs.writeFileSync(process.env.FACTORY_CONFIG, JSON.stringify({ llm: { provider: 'mock' }, image: { backend: 'placeholder' }, video: { backend: 'placeholder' } }));
 
-const { migrate, run, get } = await import('../src/db.js');
+const { migrate, run, get, all } = await import('../src/db.js');
 const { ensureEditSchema } = await import('../src/edit-timeline.js');
 const { ensureReviewSchema } = await import('../src/script-review.js');
 const { createApp, createServer } = await import('../src/http.js');
@@ -58,12 +58,15 @@ ok('审计已落库', !!row && row.actor === '测试员' && /测试强制继续/
 
 console.log('\n=== 4. 应用镜头规范化 ===');
 const beforeRows = get('SELECT COUNT(*) n, ROUND(SUM(duration),1) d FROM shots WHERE episode_id=?', 'EP-G1');
-const ap = await fetch(base + '/api/scripts/SC-G/shots/normalize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ episode: 'S01E001', minShots: 10, maxShots: 12, apply: true, confirm: true, operator: '测试员' }) });
+const ap = await fetch(base + '/api/scripts/SC-G/shots/normalize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ episode: 'S01E001', minShots: 10, maxShots: 12, clampDuration: true, apply: true, confirm: true, operator: '测试员' }) });
 const apj = await ap.json();
 ok('应用成功', ap.status === 200 && apj.ok && apj.applied === true, JSON.stringify({ before: apj.before, after: apj.after, deleted: apj.deleted, updated: apj.updated }));
 const afterRows = get('SELECT COUNT(*) n, ROUND(SUM(duration),1) d FROM shots WHERE episode_id=?', 'EP-G1');
 ok('镜头数压到 10–12', afterRows.n >= 10 && afterRows.n <= 12, `n=${afterRows.n}`);
-ok('总时长保持', Math.abs(Number(afterRows.d) - Number(beforeRows.d)) < 0.5, `${beforeRows.d} → ${afterRows.d}`);
+const durRows = all('SELECT duration FROM shots WHERE episode_id=?', 'EP-G1');
+ok('单镜时长钳到 5–6 秒', durRows.every((r) => Number(r.duration) >= 5 && Number(r.duration) <= 6), JSON.stringify([...new Set(durRows.map((r) => r.duration))]));
+const epDur = get('SELECT duration FROM script_episodes WHERE id=?', 'EP-G1').duration;
+ok('集时长按实际总时长更新', Math.abs(Number(epDur) - Number(afterRows.d)) < 0.5, `${beforeRows.d} → ${afterRows.d}（集=${epDur}）`);
 ok('应用写了审计', !!get("SELECT * FROM audit_log WHERE action='shots:normalize' ORDER BY at DESC LIMIT 1"), '');
 
 server.closeAllConnections?.();

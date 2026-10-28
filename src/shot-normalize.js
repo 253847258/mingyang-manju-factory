@@ -27,7 +27,7 @@ function mergePair(a, b) {
   };
 }
 
-export function normalizeShotCount(shots = [], { min = 10, max = 12, minSplitSec = 6 } = {}) {
+export function normalizeShotCount(shots = [], { min = 10, max = 12, minSplitSec = 6, clampDuration = false, minSec = 5, maxSec = 6 } = {}) {
   const list = (Array.isArray(shots) ? shots : []).map((s) => ({ ...s }));
   const before = list.length;
   const changes = [];
@@ -70,11 +70,25 @@ export function normalizeShotCount(shots = [], { min = 10, max = 12, minSplitSec
   }
 
   list.forEach((s, i) => { s.idx = i + 1; });
+
+  // 可选：把单镜时长钳到 [minSec, maxSec]，让"镜头数 + 单镜时长 + 集时长"三者自洽
+  let clamped = 0;
+  if (clampDuration) {
+    for (const s of list) {
+      const raw = num(s.duration);
+      const d = Math.round(Math.min(maxSec, Math.max(minSec, raw)) * 10) / 10;
+      if (d !== raw) { s.duration = d; s._clamped = true; clamped += 1; }
+    }
+  }
+  const totalDuration = Math.round(list.reduce((a, s) => a + num(s.duration), 0) * 10) / 10;
+
   return {
     ok: true,
     before,
     after: list.length,
     inRange: list.length >= min && list.length <= max,
+    clamped,
+    totalDuration,
     changes,
     shots: list,
   };

@@ -90,6 +90,9 @@ export function registerGateRoutes(app) {
       const r = normalizeShotCount(shots, {
         min: Number(body.minShots) || 10,
         max: Number(body.maxShots) || 12,
+        clampDuration: body.clampDuration === true,
+        minSec: Number(body.minSec) || 5,
+        maxSec: Number(body.maxSec) || 6,
       });
       if (body.apply === true) {
         if (body.confirm !== true) throw badRequest('应用规范化需要 confirm:true（会合并/拆分镜头并写库）');
@@ -118,13 +121,16 @@ export function registerGateRoutes(app) {
             inserted += 1;
           }
         }
+        if (body.clampDuration === true && Number(r.totalDuration) > 0) {
+          run('UPDATE script_episodes SET duration=? WHERE id=?', r.totalDuration, ep.id);
+        }
         try {
           run('INSERT INTO audit_log(id,actor,action,entity,entity_id,detail,at) VALUES(?,?,?,?,?,?,?)',
             `AU-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
             String(body.operator || '未署名').slice(0, 40), 'shots:normalize', 'episode', ep.id,
-            JSON.stringify({ scriptId, code, before: r.before, after: r.after, deleted, updated, inserted }), nowISO());
+            JSON.stringify({ scriptId, code, before: r.before, after: r.after, deleted, updated, inserted, clamped: r.clamped, totalDuration: r.totalDuration }), nowISO());
         } catch { /* 审计失败不阻断 */ }
-        return ctx.json({ ok: true, applied: true, episode: { id: ep.id, code, title: ep.title }, before: r.before, after: r.after, inRange: r.inRange, deleted, updated, inserted, totalChanges: r.changes.length, backupDir });
+        return ctx.json({ ok: true, applied: true, episode: { id: ep.id, code, title: ep.title }, before: r.before, after: r.after, inRange: r.inRange, clamped: r.clamped, totalDuration: r.totalDuration, deleted, updated, inserted, totalChanges: r.changes.length, backupDir });
       }
       ctx.json({
         ok: true,
@@ -133,6 +139,8 @@ export function registerGateRoutes(app) {
         before: r.before,
         after: r.after,
         inRange: r.inRange,
+        clamped: r.clamped,
+        totalDuration: r.totalDuration,
         totalChanges: r.changes.length,
         changes: r.changes,
       });
