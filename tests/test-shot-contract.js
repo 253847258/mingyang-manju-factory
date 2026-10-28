@@ -4,11 +4,11 @@ const { validateShots, DEFAULT_CONTRACT } = await import('../src/shot-contract.j
 let pass = 0, fail = 0;
 const ok = (n, c, e = '') => { if (c) { pass++; console.log(`  PASS ${n}${e ? ` -> ${e}` : ''}`); } else { fail++; console.error(`  FAIL ${n}${e ? ` -> ${e}` : ''}`); } };
 
-const shot = (i, over = {}) => ({ id: `S${i}`, idx: i, duration: 4, dialogue: '', prompt_pos: 'cinematic wide shot', ...over });
+const shot = (i, over = {}) => ({ id: `S${i}`, idx: i, duration: 5, dialogue: '', prompt_pos: 'cinematic wide shot', ...over });
 const good = Array.from({ length: 10 }, (_, i) => shot(i + 1));
 let r = validateShots(good);
 ok('合规分镜通过', r.ok && r.issues.length === 0, JSON.stringify(r.summary));
-ok('默认契约 8–12 镜 / 3–6s / 台词≤30', DEFAULT_CONTRACT.minShots === 8 && DEFAULT_CONTRACT.maxShots === 12 && DEFAULT_CONTRACT.maxSec === 6 && DEFAULT_CONTRACT.maxDialogue === 30, '');
+ok('默认契约 10–12 镜 / 5–6s / 台词≤30', DEFAULT_CONTRACT.minShots === 10 && DEFAULT_CONTRACT.maxShots === 12 && DEFAULT_CONTRACT.minSec === 5 && DEFAULT_CONTRACT.maxSec === 6 && DEFAULT_CONTRACT.maxDialogue === 30, '');
 
 const many = Array.from({ length: 33 }, (_, i) => shot(i + 1, { duration: i < 6 ? 8 : 4 }));
 r = validateShots(many);

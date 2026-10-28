@@ -27,7 +27,7 @@ function mergePair(a, b) {
   };
 }
 
-export function normalizeShotCount(shots = [], { min = 8, max = 12, minSplitSec = 6 } = {}) {
+export function normalizeShotCount(shots = [], { min = 10, max = 12, minSplitSec = 6 } = {}) {
   const list = (Array.isArray(shots) ? shots : []).map((s) => ({ ...s }));
   const before = list.length;
   const changes = [];

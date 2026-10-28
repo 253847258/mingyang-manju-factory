@@ -13,7 +13,10 @@ ok('合并保留第一个 id', r.changes.every((c) => c.type !== 'merge' || c.to
 ok('合并后总时长不丢', Math.abs(r.shots.reduce((a, s) => a + Number(s.duration), 0) - Array.from({ length: 33 }, (_, i) => (i % 3 === 0 ? 6 : 4)).reduce((a, b) => a + b, 0)) < 0.5, '');
 
 r = normalizeShotCount(Array.from({ length: 5 }, (_, i) => shot(i + 1, { duration: 8 })));
-ok('5 镜拆到 8', r.after === 8 && r.changes.some((c) => c.type === 'split'), `after=${r.after}`);
+ok('5 镜拆到默认 10', r.after === 10 && r.changes.some((c) => c.type === 'split'), `after=${r.after}`);
+
+r = normalizeShotCount(Array.from({ length: 5 }, (_, i) => shot(i + 1, { duration: 8 })), { min: 8 });
+ok('min 可配置为 8', r.after === 8, `after=${r.after}`);
 ok('拆分后 idx 连续', r.shots.every((s, i) => s.idx === i + 1), '');
 
 r = normalizeShotCount(Array.from({ length: 6 }, (_, i) => shot(i + 1, { duration: 4 })));

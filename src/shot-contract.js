@@ -3,9 +3,9 @@
 // 只做校验，不修改数据；由闸门路由与前端 preflight 调用。
 
 export const DEFAULT_CONTRACT = Object.freeze({
-  minShots: 8,
+  minShots: 10,
   maxShots: 12,
-  minSec: 3,
+  minSec: 5,
   maxSec: 6,
   maxDialogue: 30,
 });

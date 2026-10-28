@@ -55,7 +55,7 @@ cg = checkContractGate({ scriptId: 'SC-M', code: 'S01E001', mode: 'strict' });
 ok('strict：直接阻断', cg.ok === false && cg.code === 'shot-contract', '');
 for (let i = 1; i <= 10; i += 1) {
   run('INSERT INTO shots(id,script_id,episode_id,idx,duration,dialogue,prompt_pos,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)',
-    `SH-C${i}`, 'SC-M', 'EP-M1', i, 4, '', 'cinematic wide shot', 'draft', now);
+    `SH-C${i}`, 'SC-M', 'EP-M1', i, 5, '', 'cinematic wide shot', 'draft', now);
 }
 cg = checkContractGate({ scriptId: 'SC-M', code: 'S01E001', mode: 'strict' });
 ok('合规分镜在 strict 下放行', cg.ok === true && cg.contractOk === true, '');

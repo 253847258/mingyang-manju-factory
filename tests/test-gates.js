@@ -56,6 +56,16 @@ ok('override 返回成功', r.status === 200 && j.ok && j.audited === true, JSON
 const row = get("SELECT * FROM audit_log WHERE action='gate:override' ORDER BY at DESC LIMIT 1");
 ok('审计已落库', !!row && row.actor === '测试员' && /测试强制继续/.test(row.detail || ''), row ? row.detail.slice(0, 80) : '无');
 
+console.log('\n=== 4. 应用镜头规范化 ===');
+const beforeRows = get('SELECT COUNT(*) n, ROUND(SUM(duration),1) d FROM shots WHERE episode_id=?', 'EP-G1');
+const ap = await fetch(base + '/api/scripts/SC-G/shots/normalize', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ episode: 'S01E001', minShots: 10, maxShots: 12, apply: true, confirm: true, operator: '测试员' }) });
+const apj = await ap.json();
+ok('应用成功', ap.status === 200 && apj.ok && apj.applied === true, JSON.stringify({ before: apj.before, after: apj.after, deleted: apj.deleted, updated: apj.updated }));
+const afterRows = get('SELECT COUNT(*) n, ROUND(SUM(duration),1) d FROM shots WHERE episode_id=?', 'EP-G1');
+ok('镜头数压到 10–12', afterRows.n >= 10 && afterRows.n <= 12, `n=${afterRows.n}`);
+ok('总时长保持', Math.abs(Number(afterRows.d) - Number(beforeRows.d)) < 0.5, `${beforeRows.d} → ${afterRows.d}`);
+ok('应用写了审计', !!get("SELECT * FROM audit_log WHERE action='shots:normalize' ORDER BY at DESC LIMIT 1"), '');
+
 server.closeAllConnections?.();
 await new Promise((res) => server.close(res));
 console.log(`\n=== 结果：${pass} 通过 / ${fail} 失败 ===`);

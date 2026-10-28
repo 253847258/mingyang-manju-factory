@@ -366,7 +366,7 @@ function renderStage1() {
         ${DURATION_PRESETS.map((p) => `<span class="sc-chip${Number(f.episodeSeconds) === p.v ? ' sc-on' : ''}" data-act="preset-dur" data-v="${p.v}">${esc(p.label)}</span>`).join('')}
         <input class="sc-input" style="width:110px" type="number" min="15" data-form="episodeSeconds" value="${attr(f.episodeSeconds)}"/>
       </div>
-      <span class="sc-side-sub">当前：${fmtSec(f.episodeSeconds)}／集 · 建议 8–12 镜；60 秒集约 5–8 秒/镜（40 分钟 = 2400 秒，90 分钟 = 5400 秒）</span>
+      <span class="sc-side-sub">当前：${fmtSec(f.episodeSeconds)}／集 · 建议 10–12 镜；60 秒集约 5–6 秒/镜（40 分钟 = 2400 秒，90 分钟 = 5400 秒）</span>
     </div>
 
     <div class="sc-split"></div>
@@ -432,7 +432,7 @@ function renderStage2() {
       <label class="sc-inline"><input type="checkbox" data-form="overwrite"${S.form?.overwrite ? ' checked' : ''}/> 覆盖已有规划</label>
       <button class="sc-btn sc-primary" data-act="plan">生成 / 更新分集规划</button>
       <button class="sc-btn" data-act="sb-all">全部生成分镜（异步任务）</button>
-      <button class="sc-btn" data-act="norm-preview" title="只预览：把本集镜头压/补到 8–12 镜，不改库">📏 预览镜头规范（8–12）</button>
+      <button class="sc-btn" data-act="norm-preview" title="只预览：把本集镜头压/补到 8–12 镜，不改库">📏 预览镜头规范（10–12）</button>
     </div>
     <div id="sc-job-plan">${renderJobBox('plan')}</div>
     <div class="sc-split"></div>
@@ -955,7 +955,7 @@ async function previewNormalize() {
   const code = S.episodeCode;
   if (!S.current?.id || !code) { ctxRef.toast('先选一集', 'warn'); return; }
   try {
-    const r = await ctxRef.api.post(`/api/scripts/${S.current.id}/shots/normalize`, { episode: code, minShots: 8, maxShots: 12 });
+    const r = await ctxRef.api.post(`/api/scripts/${S.current.id}/shots/normalize`, { episode: code, minShots: 10, maxShots: 12 });
     if (!r.ok) { ctxRef.toast(r.error || '预览失败', 'err'); return; }
     const box = el('div');
     box.append(el('div', { class: 'sc-side-sub' }, [`当前 ${r.before} 镜 → 规范化后 ${r.after} 镜（目标 8–12）· 变更 ${r.totalChanges} 项`]));
@@ -963,7 +963,23 @@ async function previewNormalize() {
     for (const c of (r.changes || []).slice(0, 20)) {
       box.append(el('div', { class: 'sc-shot-p' }, [c.type === 'merge' ? `合并 ${c.from.join(' + ')} → ${c.to}` : `拆分 ${c.from} → ${c.to.join(' + ')}`]));
     }
-    ctxRef.modal({ title: `📏 镜头规范预览 · ${code}`, width: 640, body: box });
+    const m = ctxRef.modal({ title: `📏 镜头规范预览 · ${code}`, width: 640, body: box });
+    if (r.changes.length) {
+      box.append(el('button', {
+        class: 'sc-btn sc-primary', style: { marginTop: '10px' },
+        onclick: async () => {
+          if (!(await ctxRef.confirm(`将把 ${r.before} 镜合并/拆分为 ${r.after} 镜。\n\n会直接改库（应用前会自动备份数据库），合并后的镜头不可自动还原。继续？`))) return;
+          try {
+            const rr = await ctxRef.api.post(`/api/scripts/${S.current.id}/shots/normalize`, { episode: code, minShots: 10, maxShots: 12, apply: true, confirm: true, operator: '剧本页用户' });
+            if (rr.ok && rr.applied) {
+              m.close();
+              await selectScript(S.current.id, true);
+              ctxRef.toast(`已规范化：${rr.before} → ${rr.after} 镜${rr.backupDir ? '（已备份）' : ''}`, 'ok', 3600);
+            } else ctxRef.toast(rr.error || '应用失败', 'err');
+          } catch (e) { ctxRef.toast(e.message, 'err'); }
+        },
+      }, ['应用规范化（会改库）']));
+    }
   } catch (e) { ctxRef.toast(e.message, 'err'); }
 }
 
