@@ -121,13 +121,13 @@ export function getLineage(takeId) {
   return get(
     `SELECT * FROM ${TABLE}
      WHERE take_id=?
-     ORDER BY created_at DESC, rowid DESC
+     ORDER BY rowid DESC
      LIMIT 1`,
     normalizedTakeId,
   ) || null;
 }
 
-/** 按模型筛选生成血缘，默认按时间倒序返回最近 50 条。 */
+/** 按模型筛选生成血缘，默认按插入序返回最近 50 条（墙钟回拨也不乱序）。 */
 export function listLineage({ model, limit } = {}) {
   ensureLineageSchema();
   const parsedLimit = Number.parseInt(limit, 10);
@@ -139,7 +139,7 @@ export function listLineage({ model, limit } = {}) {
     return all(
       `SELECT * FROM ${TABLE}
        WHERE model=?
-       ORDER BY created_at DESC, rowid DESC
+       ORDER BY rowid DESC
        LIMIT ?`,
       normalizedModel,
       safeLimit,
@@ -147,7 +147,7 @@ export function listLineage({ model, limit } = {}) {
   }
   return all(
     `SELECT * FROM ${TABLE}
-     ORDER BY created_at DESC, rowid DESC
+     ORDER BY rowid DESC
      LIMIT ?`,
     safeLimit,
   );

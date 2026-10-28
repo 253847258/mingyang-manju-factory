@@ -120,7 +120,7 @@ export function listOrders() {
   ensureOrderSchema();
   return all(
     `SELECT * FROM production_orders
-     ORDER BY updated_at DESC, created_at DESC, id DESC`,
+     ORDER BY rowid DESC`,
   ).map(hydrateOrder);
 }
 
