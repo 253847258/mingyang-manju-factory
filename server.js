@@ -30,6 +30,7 @@ import { ensureEditSchema } from './src/edit-timeline.js';
 import { registerNovelAiRoutes } from './src/routes/novel-ai.js';
 import { registerScriptingRoutes } from './src/routes/scripting.js';
 import { registerCanvasEnhanceRoutes } from './src/routes/canvas-enhance.js';
+import { registerAssetRoutes } from './src/routes/assets.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.join(__dirname, 'web');
@@ -96,6 +97,7 @@ registerNovelAdaptRoutes(app);   // 小说改编工作台：上传小说 → 剧
 registerNovelAiRoutes(app);      // 小说工坊：故事框架 AI 自动填写 + 角色卡提交
 registerScriptingRoutes(app);    // 剧本工厂增强：物化/引用体检/提示词体检/快照/预估/FDX+HTML
 registerCanvasEnhanceRoutes(app); // 画布增强：九宫格 / 描述自动改进 / 一致性闸门 / 专业提示词
+registerAssetRoutes(app);         // V2 资产层：资产/版本/快照/血缘/成本 + 生产订单
 registerDurationRoutes(app);     // 成片时长对账：目标时长 vs ffprobe 实际时长
 try { ensureEditSchema(); registerEditRoutes(app); } catch (e) { console.warn('[boot] 后期精修模块未就绪：', e.message); }  // 后期精修：多轨轻剪 / 审片打点 / 版本溯源
 registerGateRoutes(app);  // 生产闸门：剧本硬门禁 / 镜头契约 / 强制继续审计
