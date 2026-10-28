@@ -752,6 +752,7 @@ function filterCard() {
       <button class="rd-btn rd-sm" data-act="kf-sel">🖼 渲染选中关键帧</button>
       <button class="rd-btn rd-sm" data-act="vid-sel">🎬 生成选中视频</button>
       <button class="rd-btn rd-sm${lastImageCount() ? ' rd-primary' : ''}" data-act="last-panel" title="为选中镜头/整集设置「尾帧」：出片时把首帧+尾帧一起交给视频后端做首尾帧过渡（批量链路也支持，不必走画布 DAG）。未设置尾帧 = 只做首帧驱动。选择会立即写入项目库（一镜一张），刷新/换集/下次打开都会还原${lastImageMissingCount() ? `；注意有 ${lastImageMissingCount()} 镜的尾帧文件已不存在` : ''}">⌛ 设置尾帧${lastImageCount() ? `（${lastImageCount()}${lastImageMissingCount() ? ` · ⚠${lastImageMissingCount()}` : ''}）` : ''}</button>
+      <button class="rd-btn rd-sm" data-act="anchor-panel" title="V2 闸门二：先只出前 3 镜锁定风格，确认后再批量出帧/生影">🎯 前三镜锚定</button>
     </div>
     <div class="rd-sub" style="margin-top:8px"><span>当前显示 ${shown.length} 张卡片 / 共 ${all.length} 镜</span></div>
   </div>`;
@@ -850,6 +851,53 @@ function lastFrameCandidates(shot) {
 }
 
 /** 「⌛ 尾帧」面板：为选中的镜头（或整集）逐镜选尾帧图；可顺手试渲染一镜（不落库） */
+async function openAnchorPanel() {
+  if (!S.scriptId || !S.epCode) { toast('先选一集', 'warn'); return; }
+  const shots = (S.board?.shots || []).slice(0, 3);
+  if (shots.length < 3) { toast('本集不足 3 镜，无法锚定', 'warn'); return; }
+  let st = null;
+  try { st = await ctxRef.api.get(`/api/gates/anchor?script_id=${encodeURIComponent(S.scriptId)}&code=${encodeURIComponent(S.epCode)}`); }
+  catch (e) { toast(e.message, 'err'); return; }
+  const body = document.createElement('div');
+  const status = document.createElement('div');
+  status.className = 'rd-muted';
+  status.textContent = `状态：${st?.approved ? `已锚定（${st.anchor?.approved_by || ''}）` : (st?.exists ? '草稿（未锁定）' : '未锚定')}`;
+  body.append(status);
+  const list = document.createElement('div');
+  list.className = 'rd-muted';
+  list.style.marginTop = '6px';
+  list.textContent = '前 3 镜：' + shots.map((x) => `#${x.idx} ${String(x.action || '').slice(0, 14)}`).join('  |  ');
+  body.append(list);
+  const row = document.createElement('div');
+  row.className = 'rd-row';
+  row.style.marginTop = '12px';
+  const gen = document.createElement('button');
+  gen.className = 'rd-btn rd-sm rd-primary';
+  gen.textContent = '生成/重生成前 3 镜';
+  gen.onclick = async () => {
+    try {
+      const r = await ctxRef.api.post('/api/render/keyframes', { scriptId: S.scriptId, code: S.epCode, shotIds: shots.map((x) => x.id), overwrite: true, confirm: true });
+      if (!r.jobId) return;
+      toast('已提交前 3 镜出图', 'ok');
+      ctxRef.watchJob(r.jobId, () => {}, { onDone: async () => { try { await loadBoard(S.epCode, true); } catch { /* ignore */ } toast('前 3 镜已生成，请检查风格', 'ok', 3600); } });
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  const lock = document.createElement('button');
+  lock.className = 'rd-btn rd-sm';
+  lock.textContent = '锁定风格';
+  lock.onclick = async () => {
+    try {
+      await ctxRef.api.post('/api/gates/anchor', { scriptId: S.scriptId, code: S.epCode, shotIds: shots.map((x) => x.id), model: S.board?.backend?.image?.backend || '', operator: '制作台用户' });
+      const r = await ctxRef.api.post('/api/gates/anchor/approve', { scriptId: S.scriptId, code: S.epCode, operator: '制作台用户' });
+      toast('已锁定前三镜风格', 'ok');
+      m.close();
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  row.append(gen, lock);
+  body.append(row);
+  const m = ctxRef.modal({ title: `🎯 前三镜锚定 · ${S.epCode}`, width: 660, body });
+}
+
 function openLastFramePanel(ids = []) {
   const list = targetShots(ids);
   if (!list.length) { toast('没有可设置尾帧的镜头', 'err'); return; }
@@ -3116,6 +3164,9 @@ function onClick(e) {
       break;
     case 'last-panel':
       openLastFramePanel([...S.selected]);
+      break;
+    case 'anchor-panel':
+      openAnchorPanel();
       break;
     case 'last-one':
       openLastFramePanel([shotId]);

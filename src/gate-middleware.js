@@ -6,6 +6,7 @@ import { PassThrough } from 'node:stream';
 import { all, get, run } from './db.js';
 import { nowISO } from './util.js';
 import { validateShots } from './shot-contract.js';
+import { anchorStatus } from './anchor.js';
 
 export const GATED_PATHS = Object.freeze([
   '/api/render/keyframes',
@@ -59,6 +60,18 @@ export function checkContractGate({ scriptId, code, mode = 'warn', ack = false }
 
 function requireShots(episodeId, scriptId) {
   try { return all('SELECT * FROM shots WHERE episode_id=? AND script_id=? ORDER BY idx', episodeId, scriptId); } catch { return []; }
+}
+
+// 前三镜锚定闸门：批量请求（>3 镜或整集）要求 approved anchor
+export function checkAnchorGate({ scriptId, code, shotIds = null, path = '', mode = 'warn' } = {}) {
+  if (!scriptId || !code) return { ok: true, skipped: true, reason: 'missing-script-or-code' };
+  const batch = (Array.isArray(shotIds) && shotIds.length > 3) || /\/assemble|\/pipeline/.test(String(path || ''));
+  if (!batch) return { ok: true, skipped: true, reason: 'not-batch' };
+  const st = anchorStatus(scriptId, code);
+  if (st.approved) return { ok: true, anchored: true, anchor: st.anchor };
+  if (mode === 'strict') return { ok: false, blocked: true, gate: 'anchor', mode, message: '该集尚未完成「前三镜锚定」，禁止批量出片' };
+  if (mode === 'confirm') return { ok: false, blocked: true, gate: 'anchor', mode, message: '该集尚未完成「前三镜锚定」，需先锁定前 3 镜风格' };
+  return { ok: true, anchored: false, mode, warning: '该集尚未完成「前三镜锚定」（warn 模式放行）' };
 }
 
 // 把已读出的 body 重新包装成可读流，交给原 handler

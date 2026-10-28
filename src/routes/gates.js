@@ -11,6 +11,7 @@ import { all, get, run } from '../db.js';
 import { nowISO } from '../util.js';
 import { validateShots } from '../shot-contract.js';
 import { normalizeShotCount } from '../shot-normalize.js';
+import { anchorStatus, upsertAnchor, approveAnchor } from '../anchor.js';
 
 const ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const DB_FILE = process.env.FACTORY_DB || path.join(ROOT, 'data', 'factory.db');
@@ -144,6 +145,44 @@ export function registerGateRoutes(app) {
         totalChanges: r.changes.length,
         changes: r.changes,
       });
+    } catch (e) { ctx.json({ ok: false, error: e.message }, e.status || 400); }
+  });
+
+  // 前三镜锚定：查询 / 保存 / 通过
+  app.get('/api/gates/anchor', async (ctx) => {
+    const scriptId = String(ctx.query.script_id || '');
+    const code = String(ctx.query.code || '');
+    if (!scriptId || !code) return ctx.json({ ok: false, error: '缺少 script_id 或 code' }, 400);
+    try { ctx.json({ ok: true, ...anchorStatus(scriptId, code) }); }
+    catch (e) { ctx.json({ ok: false, error: e.message }, 400); }
+  });
+
+  app.post('/api/gates/anchor', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      const scriptId = String(body.scriptId || body.script_id || '');
+      const code = String(body.code || '');
+      if (!scriptId || !code) throw badRequest('缺少 scriptId 或 code');
+      const ep = episodeOf(scriptId, code);
+      const a = upsertAnchor({
+        scriptId, code, episodeId: ep.id,
+        shotIds: body.shotIds || [],
+        model: body.model || '', seed: body.seed || '', style: body.style || '',
+        lut: body.lut || '', promptTemplate: body.promptTemplate || '',
+        operator: body.operator || '未署名',
+      });
+      ctx.json({ ok: true, anchor: a });
+    } catch (e) { ctx.json({ ok: false, error: e.message }, e.status || 400); }
+  });
+
+  app.post('/api/gates/anchor/approve', async (ctx) => {
+    try {
+      const body = (await ctx.body()) || {};
+      const scriptId = String(body.scriptId || body.script_id || '');
+      const code = String(body.code || '');
+      if (!scriptId || !code) throw badRequest('缺少 scriptId 或 code');
+      const a = approveAnchor(scriptId, code, body.operator || '未署名');
+      ctx.json({ ok: true, anchor: a });
     } catch (e) { ctx.json({ ok: false, error: e.message }, e.status || 400); }
   });
 

@@ -25,7 +25,7 @@ import { guardRestoredBackup } from './src/restore-guard.js';
 import { registerDurationRoutes } from './src/routes/duration.js';
 import { registerEditRoutes } from './src/routes/edit.js';
 import { registerGateRoutes } from './src/routes/gates.js';
-import { isGatedPath, checkScriptGate, checkContractGate, replayRequest } from './src/gate-middleware.js';
+import { isGatedPath, checkScriptGate, checkContractGate, checkAnchorGate, replayRequest } from './src/gate-middleware.js';
 import { ensureEditSchema } from './src/edit-timeline.js';
 import { registerNovelAiRoutes } from './src/routes/novel-ai.js';
 import { registerScriptingRoutes } from './src/routes/scripting.js';
@@ -181,6 +181,20 @@ const server = createServer((req, res) => {
         if (!cgate.ok) {
           res.writeHead(409, { 'content-type': 'application/json; charset=utf-8' });
           res.end(JSON.stringify({ ok: false, gate: 'shot-contract', mode: cgate.mode, error: cgate.message || '镜头契约不达标', issues: cgate.issues, summary: cgate.summary }));
+          resolve();
+          return;
+        }
+        const anchorMode = String(cfg.gates?.anchorMode || 'warn');
+        const agate = checkAnchorGate({
+          scriptId: body.scriptId || body.script_id,
+          code: body.code,
+          shotIds: body.shotIds || null,
+          path: req.url,
+          mode: anchorMode,
+        });
+        if (!agate.ok) {
+          res.writeHead(409, { 'content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ ok: false, gate: 'anchor', mode: agate.mode, error: agate.message }));
           resolve();
           return;
         }
