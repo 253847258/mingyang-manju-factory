@@ -58,6 +58,7 @@ const FAST = [
   'test-assets-routes.js',
   'test-migrate-assets.js',
   'test-novel-ai.js',
+  'test-novel-pipeline.js',
   'test-novel-outline-ai.js',
   'test-novel-writing.js',
   'test-novel-assets.js',

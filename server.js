@@ -28,6 +28,7 @@ import { registerGateRoutes } from './src/routes/gates.js';
 import { isGatedPath, checkScriptGate, checkContractGate, checkAnchorGate, replayRequest } from './src/gate-middleware.js';
 import { ensureEditSchema } from './src/edit-timeline.js';
 import { registerNovelAiRoutes } from './src/routes/novel-ai.js';
+import { registerNovelPipelineRoutes } from './src/routes/novel-pipeline.js';
 import { registerScriptingRoutes } from './src/routes/scripting.js';
 import { registerCanvasEnhanceRoutes } from './src/routes/canvas-enhance.js';
 import { registerAssetRoutes } from './src/routes/assets.js';
@@ -95,6 +96,7 @@ registerMcpRoutes(app);   // P4：人类审批入口 + Agent HTTP 桥（/api/can
 registerStudioRoutes(app);   // 自动化制片 Agent：/api/studio/productions*
 registerNovelAdaptRoutes(app);   // 小说改编工作台：上传小说 → 剧本/角色/场景/道具/提示词/资产清单
 registerNovelAiRoutes(app);      // 小说工坊：故事框架 AI 自动填写 + 角色卡提交
+registerNovelPipelineRoutes(app); // 小说工坊四步生产线：章纲 → 内容卡 → 资产 → 正文
 registerScriptingRoutes(app);    // 剧本工厂增强：物化/引用体检/提示词体检/快照/预估/FDX+HTML
 registerCanvasEnhanceRoutes(app); // 画布增强：九宫格 / 描述自动改进 / 一致性闸门 / 专业提示词
 registerAssetRoutes(app);         // V2 资产层：资产/版本/快照/血缘/成本 + 生产订单

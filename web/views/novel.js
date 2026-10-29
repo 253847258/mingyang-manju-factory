@@ -1,5 +1,6 @@
 // 模块2 前端视图：小说工坊（100 题材 / 大纲可视化 / 逐章写作 / 阅读导出）
 // 只使用 ctx 提供的成员，类名统一 nv- 前缀，样式自行注入。
+import { mount as mountNovelPipeline, unmount as unmountNovelPipeline } from './novel-pipeline.js';
 const STYLE_ID = 'nv-style';
 
 const CSS = `
@@ -292,6 +293,7 @@ async function loadActors() {
 }
 
 async function openNovel(id) {
+  const changedNovel = S.currentId !== id;
   const [detail, assets, freeMode, creativeOptions] = await Promise.all([
     S.ctx.api.get(`/api/novels/${id}`),
     S.ctx.api.get(`/api/novels/${id}/assets`).catch(() => ({ characters: [], environments: [], props: [] })),
@@ -304,6 +306,7 @@ async function openNovel(id) {
   S.creativeOptions = creativeOptions;
   S.currentId = id;
   S.view = 'workspace';
+  if (changedNovel) S.tab = 'pipeline';
   if (S.detail.llm) S.llm = S.detail.llm;
   if (S.detail.novel) applyFormFromNovel(S.detail.novel);
   const first = (S.detail.chapters || []).find((c) => c.status === 'done') || (S.detail.chapters || [])[0];
@@ -367,6 +370,7 @@ const castTotal = () => (S.form?.actor_ids?.length || 0) + (S.form?.custom_actor
 // ---------------- 渲染 ----------------
 function render() {
   if (!S.root) return;
+  try { unmountNovelPipeline(); } catch { /* ignore */ }
   const focusId = document.activeElement?.id;
   const selStart = document.activeElement?.selectionStart;
   S.root.innerHTML = `<div class="nv-wrap">${sideHtml()}<div class="nv-main" id="nv-main">${mainHtml()}</div></div>`;
@@ -378,6 +382,19 @@ function render() {
   }
   bindFileInput();
   bindAreaCounters();
+  if (S.tab === 'pipeline' && S.currentId) {
+    const host = S.root.querySelector('#nv-pipeline-host');
+    if (host) {
+      mountNovelPipeline(host, {
+        novelId: S.currentId,
+        ctx: S.ctx,
+        onChange: async () => {
+          try { await reloadDetail(); await loadList(); } catch { /* ignore */ }
+        },
+        openLegacy: (tab) => { S.tab = tab || 'outline'; render(); },
+      });
+    }
+  }
 }
 
 function sideHtml() {
@@ -411,7 +428,7 @@ function mainHtml() {
   if (S.view === 'create') return createHtml();
   if (S.view === 'workspace' && S.detail) return workspaceHtml();
   return `<div class="nv-card"><div class="nv-empty">左侧选择项目，或点「＋ 新建」创建一部小说。<br>
-    <span class="nv-hint">创作流程：① 参数与题材 → ② 定义演员/自定义角色 → ③ 上传故事框架范本（可选）→ ④ <b>生成章节大纲</b> → ⑤ <b>按大纲逐章写作</b> → ⑥ 阅读 / 编辑 / 导出</span></div></div>`;
+    <span class="nv-hint">创作流程：① 参数与角色 → ② <b>章节大纲</b> → ③ <b>章节内容卡</b> → ④ <b>资产与画布参考</b> → ⑤ <b>续写正文</b> → ⑥ 阅读 / 编辑 / 导出</span></div></div>`;
 }
 
 // ---------- 创建 / 参数表单 ----------
@@ -421,11 +438,17 @@ function createHtml() {
 
 function pipelineHtml() {
   return `<div class="nv-pipe">
-    <span class="nv-pipe-t">一键流程</span>
-    <button class="nv-btn nv-btn-p nv-btn-sm" data-act="pipe-params" title="AI 补全参数（题材/基调/视角/规模）+ 生成故事框架 + 按剧情补齐角色">① 一键加入参数角色</button>
-    <button class="nv-btn nv-btn-sm" data-act="pipe-outline" title="按整条故事线生成完整大纲（章节大纲 + 全部叙事分节）">② 一键生成大纲</button>
-    <button class="nv-btn nv-btn-sm" data-act="pipe-chapters" title="从第 1 章到最后一章逐章生成 2500-3500 字章节大纲">③ 一键生成章节</button>
-    <button class="nv-btn nv-btn-a nv-btn-sm" data-act="pipe-write" title="按章节大纲逐章写作正文（未写的章节）">④ 一键写作</button>
+    <span class="nv-pipe-t">四步生产线</span>
+    <button class="nv-btn nv-btn-p nv-btn-sm" data-act="tab" data-tab="pipeline">进入生产线</button>
+    <span class="nv-hint">① 章节大纲 → ② 章节内容卡 → ③ 布置资产与画布参考 → ④ 续写正文</span>
+    <details class="nv-hint" style="margin-left:auto"><summary>高级旧流程</summary>
+      <div class="nv-row" style="margin-top:6px">
+        <button class="nv-btn nv-btn-sm" data-act="pipe-params">补参数角色</button>
+        <button class="nv-btn nv-btn-sm" data-act="pipe-outline">旧版完整大纲</button>
+        <button class="nv-btn nv-btn-sm" data-act="pipe-chapters">旧版章节规划</button>
+        <button class="nv-btn nv-btn-sm" data-act="pipe-write">旧版批量写作</button>
+      </div>
+    </details>
   </div>`;
 }
 
@@ -658,7 +681,7 @@ function actorListHtml() {
 function workspaceHtml() {
   const n = S.detail.novel;
   const st = S.detail.stats || {};
-  const tabs = [['params', '参数与角色'], ['outline', '大纲'], ['chapters', `章节 (${st.written || 0}/${st.total || 0})`], ['export', '导出']];
+  const tabs = [['pipeline', '四步生产线'], ['params', '参数与角色'], ['outline', '旧版大纲'], ['chapters', `章节 (${st.written || 0}/${st.total || 0})`], ['export', '导出']];
   return `<div class="nv-card">
       <div class="nv-card-t">
         <span class="nv-h1">${esc(n.title)}</span>
@@ -680,17 +703,17 @@ function workspaceHtml() {
         <button class="nv-btn nv-btn-sm" data-act="goto-settings">去设置</button>
         <button class="nv-btn nv-btn-sm" data-act="llm-help">怎么做？</button></div>` : ''}
       <div class="nv-row" style="margin-top:8px">
-        <button class="nv-btn nv-btn-p" data-act="outline-gen">① ${S.detail.outline ? '重新生成' : '生成'}章节大纲</button>
-        <button class="nv-btn nv-btn-a" data-act="write-next">② 写作下一章</button>
-        <button class="nv-btn" data-act="write-batch">批量写作…</button>
-        ${S.detail.outline ? `<span class="nv-pill">大纲 v${S.detail.outline.version}｜${esc(S.detail.outline.model || '')}｜规划 ${(S.detail.outline.sections?.chapters || []).length} 章</span>` : '<span class="nv-hint">尚未生成大纲</span>'}
+        <button class="nv-btn nv-btn-p" data-act="tab" data-tab="pipeline">🚀 四步生产线</button>
+        <span class="nv-hint">章纲 → 内容卡 → 资产与画布 → 续写正文</span>
+        <span class="nv-grow"></span>
+        ${S.detail.outline ? `<span class="nv-pill">大纲 v${S.detail.outline.version}｜规划 ${(S.detail.outline.sections?.chapters || []).length} 章</span>` : '<span class="nv-hint">尚未生成大纲</span>'}
       </div>
       ${pipelineHtml()}
       ${jobBarHtml()}
       ${assetIndexHtml()}
       <div class="nv-tabs" style="margin-top:10px">${tabs.map(([k, label]) => `<button class="nv-tab ${S.tab === k ? 'nv-on' : ''}" data-act="tab" data-tab="${k}">${esc(label)}</button>`).join('')}</div>
     </div>
-    ${S.tab === 'params' ? formHtml('edit') : S.tab === 'outline' ? outlineHtml() : S.tab === 'chapters' ? chaptersHtml() : exportHtml()}`;
+    ${S.tab === 'pipeline' ? '<div id="nv-pipeline-host"></div>' : S.tab === 'params' ? formHtml('edit') : S.tab === 'outline' ? outlineHtml() : S.tab === 'chapters' ? chaptersHtml() : exportHtml()}`;
 }
 
 function assetIndexHtml() {
@@ -2673,7 +2696,7 @@ export function mount(root, ctx) {
   S.root = root;
   S.ctx = ctx;
   S.novels = []; S.q = ''; S.view = 'empty'; S.currentId = null; S.detail = null;
-  S.tab = 'params'; S.chapterIdx = null; S.chapter = null; S.editing = false;
+  S.tab = 'pipeline'; S.chapterIdx = null; S.chapter = null; S.editing = false;
   S.job = null; S.jobId = null; S.busy = false; S.exportPreview = '';
   S.freeMode = null;
   S.actors = []; S.actorsLoaded = false; S.actorQ = '';
@@ -2703,6 +2726,7 @@ export function mount(root, ctx) {
 }
 
 export function unmount() {
+  try { unmountNovelPipeline(); } catch { /* ignore */ }
   stopWatching();
   for (const t of S.timers) { try { clearInterval(t); clearTimeout(t); } catch { /* ignore */ } }
   S.timers = [];
