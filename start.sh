@@ -4,6 +4,14 @@ set -e
 cd "$(dirname "$0")"
 PORT="${PORT:-8788}"
 
+# 敏感配置优先从本地环境文件加载；文件不入库，启动日志不打印值。
+if [ -f "$PWD/config/local.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$PWD/config/local.env"
+  set +a
+fi
+
 # ── 单实例守卫（P0-ERR-INSTANCE）──────────────────────────────────────────────
 # 为什么必须拦：同机跑两个 `node server.js` 时，两份 loadConfig 内存缓存会互相覆盖，
 # 造成「设置页改完又被另一个实例写回」的配置漂移（本会话已实测两次）。

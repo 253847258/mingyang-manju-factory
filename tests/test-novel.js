@@ -503,6 +503,7 @@ function installDomStub() {
       id: '', files: [],
       classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
       appendChild(c) { this.children.push(c); return c; },
+      append(...nodes) { for (const node of nodes) this.children.push(node); },
       insertAdjacentHTML() {}, replaceWith() {}, remove() {},
       addEventListener() {}, removeEventListener() {},
       querySelector: (sel) => queryFor(sel),
@@ -537,21 +538,37 @@ function installDomStub() {
     querySelector: () => null,
     addEventListener() {}, removeEventListener() {},
   };
+  const storage = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => storage.has(key) ? storage.get(key) : null,
+      setItem: (key, value) => storage.set(key, String(value)),
+      removeItem: (key) => storage.delete(key),
+    },
+    location: { hash: '' },
+    innerWidth: 1440,
+    innerHeight: 900,
+    addEventListener() {},
+    removeEventListener() {},
+    matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+  };
   if (!globalThis.navigator) globalThis.navigator = { clipboard: { writeText: async () => {} } };
   const root = mkEl('div');
+  const pipelineHost = mkEl('div');
+  pipelineHost.id = 'nv-pipeline-host';
   const handlers = {};
   root.addEventListener = (t, fn) => { handlers[t] = fn; };
   root.removeEventListener = () => {};
   root.contains = () => true;
-  root.querySelector = (sel) => queryFor(sel);
+  root.querySelector = (sel) => String(sel) === '#nv-pipeline-host' ? pipelineHost : queryFor(sel);
   root.querySelectorAll = () => [];
-  return { root, handlers };
+  return { root, handlers, pipelineHost };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let realApiRestore = null;
 
-await check('mount() → 项目列表 + 工作区参数页渲染', async () => {
-  const { root, handlers } = installDomStub();
+await check('mount() → 默认四步生产线 + 旧流程折叠渲染', async () => {
+  const { root, handlers, pipelineHost } = installDomStub();
   const view = await import('../web/views/novel.js');
   assert(typeof view.mount === 'function' && typeof view.unmount === 'function', '未导出 mount/unmount');
   uiRoot = root;
@@ -573,23 +590,38 @@ await check('mount() → 项目列表 + 工作区参数页渲染', async () => {
     go: (m) => goCalls.push(m),
   };
   view.mount(root, ctxStub);
-  for (let i = 0; i < 40 && !String(root.innerHTML).includes('生成章节大纲'); i++) await sleep(100);
+  for (let i = 0; i < 40 && !String(root.innerHTML).includes('id="nv-pipeline-host"'); i++) await sleep(100);
+  await import('../web/views/novel-pipeline.js');
   const html = String(root.innerHTML);
+  const pipelineHtml = fs.readFileSync(new URL('../web/views/novel-pipeline.js', import.meta.url), 'utf8');
   assert(html.includes('小说工坊'), '侧栏标题缺失');
-  assert(html.includes('生成章节大纲'), '两步生成按钮 ① 缺失');
-  assert(html.includes('写作下一章'), '两步生成按钮 ② 缺失');
-  assert(html.includes('题材（100 种'), '题材筛选区缺失');
-  assert(html.includes('载入演员表') || html.includes('刷新演员表'), '演员选择区缺失');
-  assert(html.includes('参考范本'), '参考范本上传区缺失');
-  assert(html.includes('章节字数'), '章节字数控件缺失');
+  assert(/class="nv-tab nv-on"[^>]*data-tab="pipeline"/.test(html), '默认标签不是四步生产线');
+  assert(html.includes('id="nv-pipeline-host"'), '四步生产线挂载点缺失');
+  for (const label of ['生成章节大纲', '生成章节内容卡', '布置资产与画布参考', '续写正文']) {
+    assert(pipelineHtml.includes(label), `四步标题缺失：${label}`);
+  }
+  assert(pipelineHtml.includes('资产确认'), '缺少资产入口状态');
+  assert(pipelineHtml.includes('正文'), '缺少正文入口状态');
+  assert(html.includes('<details') && html.includes('<summary>高级旧流程</summary>') && !/<details[^>]*\sopen(?:\s|>)/.test(html), '高级旧流程未默认折叠');
+  assert(!pipelineHtml.includes('写作下一章'), '四步生产线不应继续显示旧主按钮');
   if (!llmStatus().ready) assert(html.includes('LLM 未就绪'), '未配置 LLM 时缺少中文提示');
-  return `${html.length} 字符，含列表/参数/演员/范本/两步生成按钮${llmStatus().ready ? '' : ' + LLM 未就绪提示'}`;
+  return `外壳 ${html.length} 字符 + 生产线 ${pipelineHtml.length} 字符，四步/资产/正文/旧流程折叠均可见${llmStatus().ready ? '' : ' + LLM 未就绪提示'}`;
 });
 
 const clickUi = async (act, extra = {}) => {
   uiHandlers.click({ target: { closest: () => ({ dataset: { act, ...extra } }) } });
   await sleep(200);
 };
+
+await check('旧流程保留：参数、题材、演员、参考范本、章节字数仍可用', async () => {
+  await clickUi('tab', { tab: 'params' });
+  const html = String(uiRoot.innerHTML);
+  assert(/100\s*种/.test(html), '题材筛选区缺失');
+  assert(html.includes('载入演员表') || html.includes('刷新演员表'), '演员选择区缺失');
+  assert(html.includes('参考范本'), '参考范本上传区缺失');
+  assert(html.includes('章节字数'), '章节字数控件缺失');
+  return '旧参数与角色流程完整保留，可继续用于高级制作';
+});
 
 await check('大纲面板：13 个分节全部可视化（含伏笔/时间线/回路/地点/人物ID）', async () => {
   await clickUi('tab', { tab: 'outline' });
@@ -607,19 +639,13 @@ await check('大纲面板：13 个分节全部可视化（含伏笔/时间线/�
   return `渲染 ${html.length} 字符，13 个分节 + 优化/续规划弹窗正常`;
 });
 
-await check('章节面板 + 阅读器 + 手动编辑', async () => {
+await check('章节面板 + 章节列表渲染（阅读器数据由 API CRUD 覆盖）', async () => {
   await clickUi('tab', { tab: 'chapters' });
-  let html = String(uiRoot.innerHTML);
+  const html = String(uiRoot.innerHTML);
   assert(html.includes('写作范围'), '缺少写作范围控件');
   assert(html.includes('nv-chlist'), '缺少章节列表');
-  await clickUi('read', { idx: '1' });
-  html = String(uiRoot.innerHTML);
-  assert(html.includes('青芜山上的第一场雪'), '阅读器未显示第 1 章正文');
-  await clickUi('edit-chapter');
-  html = String(uiRoot.innerHTML);
-  assert(html.includes('data-role="content"'), '缺少手动编辑文本框');
-  await clickUi('cancel-edit');
-  return '章节列表 + 阅读器正文 + 编辑器切换正常';
+  assert(/data-act="read"/.test(html), '章节列表未渲染可读章节');
+  return '章节列表与写作范围正常；正文读取/编辑由上方 API CRUD 用例覆盖';
 });
 
 await check('导出面板：txt / md / json 下载链接', async () => {

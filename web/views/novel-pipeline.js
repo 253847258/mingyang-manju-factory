@@ -180,7 +180,7 @@ function initialState(options) {
 function readOperator(preferred) {
   if (preferred !== undefined && preferred !== null && String(preferred).trim()) return String(preferred).trim().slice(0, 80);
   try {
-    const value = window.localStorage.getItem('nvp.operator');
+    const value = typeof window !== 'undefined' ? window.localStorage?.getItem('nvp.operator') : null;
     if (value && value.trim()) return value.trim().slice(0, 80);
   } catch { /* localStorage 不可用时只保留本次会话内存值 */ }
   return '本机操作人';
@@ -188,7 +188,9 @@ function readOperator(preferred) {
 
 function rememberOperator(value) {
   const operator = String(value || '').trim().slice(0, 80) || '本机操作人';
-  try { window.localStorage.setItem('nvp.operator', operator); } catch { /* ignore */ }
+  try {
+    if (typeof window !== 'undefined') window.localStorage?.setItem('nvp.operator', operator);
+  } catch { /* localStorage 不可用时只保留本次会话内存值 */ }
   return operator;
 }
 

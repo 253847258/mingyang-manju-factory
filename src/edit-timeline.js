@@ -147,13 +147,13 @@ export function listEpisodes() {
 
 function pickVideo(scriptId, episodeId, shotId) {
   return get(`SELECT * FROM shot_renders WHERE script_id=? AND shot_id=? AND kind='video' AND status='done'
-    ORDER BY picked DESC, created_at DESC LIMIT 1`, scriptId, shotId)
+    ORDER BY picked DESC, rowid DESC LIMIT 1`, scriptId, shotId)
     || get(`SELECT * FROM shot_renders WHERE script_id=? AND episode_id=? AND shot_id=? AND kind='video' AND status='done'
-    ORDER BY created_at DESC LIMIT 1`, scriptId, episodeId, shotId);
+    ORDER BY rowid DESC LIMIT 1`, scriptId, episodeId, shotId);
 }
 function pickKeyframe(scriptId, shotId) {
   return get(`SELECT * FROM shot_renders WHERE script_id=? AND shot_id=? AND kind='keyframe' AND status='done'
-    ORDER BY picked DESC, created_at DESC LIMIT 1`, scriptId, shotId);
+    ORDER BY picked DESC, rowid DESC LIMIT 1`, scriptId, shotId);
 }
 
 function resolveMedia(p) {
@@ -411,7 +411,7 @@ export function restoreVersion(id, versionNo, { operator = getOperator() } = {})
 
 // ---------------- 审片 ----------------
 export function listFilms(id) {
-  return all('SELECT * FROM episode_films WHERE timeline_id=? ORDER BY version_no DESC, created_at DESC', id);
+  return all('SELECT * FROM episode_films WHERE timeline_id=? ORDER BY version_no DESC, rowid DESC', id);
 }
 
 const VALID_FLOW = { draft: ['review'], review: ['approved', 'draft'], approved: ['locked', 'review'], locked: [] };
@@ -446,7 +446,7 @@ export function setReviewStatus(id, next, { note = '', operator = getOperator(),
 
 // ---------------- 批注 ----------------
 export function listComments(id) {
-  return all('SELECT * FROM review_comments WHERE timeline_id=? ORDER BY created_at DESC', id);
+  return all('SELECT * FROM review_comments WHERE timeline_id=? ORDER BY rowid DESC', id);
 }
 export function addComment(id, { timecode_ms = 0, x = null, y = null, w = null, h = null, category = 'content', severity = 'minor', body = '', author = getOperator(), versionId = null } = {}) {
   if (!txt(body, 2000)) throw new Error('批注内容不能为空');

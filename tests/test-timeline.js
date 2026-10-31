@@ -874,49 +874,50 @@ const mkPng = (name, args2, filter = null) => {
     ...(filter ? ['-vf', filter] : []), abs2], { stdio: 'pipe' });
   return rel;
 };
-const redA = mkPng('al-red.png', 'color=c=red:s=256x256:d=0.1');
-const redNoise = mkPng('al-red-noise.png', 'color=c=red:s=256x256:d=0.1', 'noise=alls=8:allf=t');
-const blueA = mkPng('al-blue.png', 'color=c=blue:s=256x256:d=0.1');
-const dSame = F.frameDistance(path.join(DATA_DIR, redA), path.join(DATA_DIR, redA));
-const dNear = F.frameDistance(path.join(DATA_DIR, redA), path.join(DATA_DIR, redNoise));
-const dDiff = F.frameDistance(path.join(DATA_DIR, redA), path.join(DATA_DIR, blueA));
+// 感知哈希与一致性必须使用有纹理、形状和明暗结构的图；纯色块的 8×8 均值几乎相同，无法代表真实画面。
+const textureA = mkPng('al-testsrc2.png', 'testsrc2=s=256x256:d=0.1');
+const textureNear = mkPng('al-testsrc2-noise.png', 'testsrc2=s=256x256:d=0.1', 'noise=alls=2:allf=t');
+const textureNegated = mkPng('al-testsrc2-negated.png', 'testsrc2=s=256x256:d=0.1', 'negate');
+const dSame = F.frameDistance(path.join(DATA_DIR, textureA), path.join(DATA_DIR, textureA));
+const dNear = F.frameDistance(path.join(DATA_DIR, textureA), path.join(DATA_DIR, textureNear));
+const dDiff = F.frameDistance(path.join(DATA_DIR, textureA), path.join(DATA_DIR, textureNegated));
 ok('画面度量：同一张图差异为 0（判定 same）', dSame.ok && dSame.distance === 0 && dSame.level === 'same', JSON.stringify(dSame).slice(0, 90));
 ok('画面度量：几乎一样的图被判为运动量过低', dNear.ok && dNear.level === 'same' && dNear.distance < 0.04, `distance=${dNear.distance}`);
 ok('画面度量：明显不同的图判定正常（可以驱动运动）', dDiff.ok && dDiff.level === 'ok' && dDiff.distance > 0.04, `distance=${dDiff.distance}`);
-ok('画面度量：缺文件时诚实返回不可用（不抛异常）', F.frameDistance(path.join(DATA_DIR, redA), path.join(DATA_DIR, 'images/不存在.png')).ok === false);
-const h1 = F.perceptualHash(path.join(DATA_DIR, redA)), h2 = F.perceptualHash(path.join(DATA_DIR, blueA));
-ok('感知哈希：同图距离 0、异色图距离拉满', F.hashDistance(h1, h1).bits === 0 && F.hashDistance(h1, h2).bits > 30, `${F.hashDistance(h1, h1).bits} / ${F.hashDistance(h1, h2).bits}`);
+ok('画面度量：缺文件时诚实返回不可用（不抛异常）', F.frameDistance(path.join(DATA_DIR, textureA), path.join(DATA_DIR, 'images/不存在.png')).ok === false);
+const h1 = F.perceptualHash(path.join(DATA_DIR, textureA)), h2 = F.perceptualHash(path.join(DATA_DIR, textureNegated));
+ok('感知哈希：同图距离 0、异结构图距离明显', F.hashDistance(h1, h1).bits === 0 && F.hashDistance(h1, h2).bits > 30, `${F.hashDistance(h1, h1).bits} / ${F.hashDistance(h1, h2).bits}`);
 ok('感知哈希：多数位中位哈希可用作组基准', typeof F.majorityHash([h1, h1, h2])?.hash === 'string');
 
 // 图「几乎一样」的尾帧：graph 自检必须给出运动量告警（不是只比文件字节）
 const nearNode = { id: flNode('video', { prompt: 'x', duration: 2 }), kind: 'video', data: JSON.stringify({ prompt: 'x', duration: 2 }) };
-const nearRun = await G.execNode(nearNode, { first: redA, last: redNoise });
+const nearRun = await G.execNode(nearNode, { first: textureA, last: textureNear });
 ok('首尾帧自检（第二层）：几乎一样的首尾帧被量化告警（带差异百分比）',
   Boolean(nearRun?.raw?.firstLast?.warn?.some((x) => /运动|差异/.test(x))) && typeof nearRun.raw.firstLast.distance === 'number',
   JSON.stringify(nearRun?.raw?.firstLast || {}).slice(0, 170));
 const okNode = { id: flNode('video', { prompt: 'x', duration: 2 }), kind: 'video', data: JSON.stringify({ prompt: 'x', duration: 2 }) };
-const okRun = await G.execNode(okNode, { first: redA, last: blueA });
+const okRun = await G.execNode(okNode, { first: textureA, last: textureNegated });
 ok('首尾帧自检（第二层）：差异正常时不误报（无 warn，只有度量值）',
   (okRun?.raw?.firstLast?.warn || []).length === 0 && okRun.raw.firstLast.distance > 0.04,
   `distance=${okRun?.raw?.firstLast?.distance}`);
 
-// ⑫ 跨镜一致性评分：同一角色的关键帧里塞一张异色图 → 必须被标成离群并给出该重跑哪几镜
+// ⑫ 跨镜一致性评分：同一角色的关键帧里塞一张异结构图 → 必须被标成离群并给出该重跑哪几镜
 const C = await import('../src/consistency.js');
 const consActor = 'C-9999';
 run(`INSERT INTO actors(id, name, gender, created_at) VALUES(?,?,?,?)`, consActor, '一致性测试演员', 'female', nowISO());
-const mkConsShot = (idx, color) => {
+const mkConsShot = (idx, variant = 'base') => {
   const sid = rid('SH');
   run(`INSERT INTO shots(id, script_id, episode_id, idx, duration, refs, status) VALUES(?,?,?,?,3,?,'draft')`,
     sid, scriptId, epId, 900 + idx, JSON.stringify({ characters: [consActor] }));
-  const rel = mkPng(`cons-${idx}-${color}.png`, `color=c=${color}:s=256x256:d=0.1`);
+  const rel = variant === 'outlier' ? textureNegated : textureA;
   run(`INSERT INTO shot_renders(id, script_id, episode_id, shot_id, kind, file_path, mime, width, height, status, created_at)
        VALUES(?,?,?,?, 'keyframe', ?, 'image/png', 256, 256, 'done', ?)`, rid('RD'), scriptId, epId, sid, rel, nowISO());
   return { sid, rel };
 };
-[mkConsShot(1, 'green'), mkConsShot(2, 'green'), mkConsShot(3, 'green'), mkConsShot(4, 'magenta')];
+[mkConsShot(1), mkConsShot(2), mkConsShot(3), mkConsShot(4, 'outlier')];
 const cres = await C.scoreConsistency({ scriptId, threshold: 0.3 });
 ok('一致性评分：按角色分组并给出组内基准哈希', cres.ok && cres.groups.some((g) => g.actorId === consActor && g.baseHash), JSON.stringify(cres.summary));
-ok('一致性评分：故意插的异色关键帧被标成离群', cres.outliers.some((o) => o.idx === 904) && !cres.outliers.some((o) => o.idx === 901),
+ok('一致性评分：故意插的异结构关键帧被标成离群', cres.outliers.some((o) => o.idx === 904) && !cres.outliers.some((o) => o.idx === 901),
   JSON.stringify(cres.outliers.map((o) => `#${o.idx}:${o.distance}`)));
 ok('一致性评分：给出「只重跑这几镜」的可执行建议', /只重跑/.test(String(cres.retryHint || '')), String(cres.retryHint).slice(0, 70));
 ok('一致性评分：摘要可读（含角色数与离群数）', /离群/.test(C.consistencySummary(cres)), C.consistencySummary(cres).slice(0, 80));

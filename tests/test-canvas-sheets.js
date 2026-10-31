@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'sheets-'));
 process.env.FACTORY_DB = path.join(TMP, 't.db');
@@ -49,7 +50,11 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const BASE = `http://127.0.0.1:${server.address().port}`;
 const post = (u, b) => fetch(BASE + u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b || {}) }).then((r) => r.json());
 
-const FFMPEG = 'C:/Users/Administrator/Documents/Codex/2026-10-09/x/work/factory/电影工厂/bin/ffmpeg/ffmpeg.exe';
+// 跨平台定位 ffmpeg：支持显式覆盖、PATH，以及仓库自带二进制兜底。
+const localFfmpeg = path.resolve(process.cwd(), 'bin', 'ffmpeg', `ffmpeg${process.platform === 'win32' ? '.exe' : ''}`);
+const FFMPEG = [process.env.FFMPEG, 'ffmpeg', localFfmpeg].filter(Boolean).find((bin) => {
+  try { return spawnSync(bin, ['-version'], { stdio: 'ignore' }).status === 0; } catch { return false; }
+});
 
 console.log('\n=== 1. 九宫格规划 ===');
 await check('人物九宫格：固定 9 格（定妆+三视角+三表情+服饰+手部）', async () => {
@@ -128,6 +133,7 @@ for (let i = 0; i < 9; i += 1) {
   cellFiles.push(f);
 }
 await check('ffmpeg 路径拼成正方形网格', async () => {
+  assert.ok(FFMPEG, '未找到可执行的 ffmpeg（已检查 FFMPEG、PATH、bin/ffmpeg/ffmpeg）');
   const out = path.join(TMP, 'ff.png');
   const r = composeSheet({ files: cellFiles, outPath: out, cell: 200, gap: 8, bin: FFMPEG });
   const d = decodePng(fs.readFileSync(out));

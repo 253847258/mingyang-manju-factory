@@ -1,6 +1,7 @@
 // 小说工坊四步生产线 HTTP 接口（明文路由）。
 import { badRequest } from '../http.js';
 import { enqueue } from '../jobs.js';
+import { ensureJobCheckpointSchema, markJobStepRunning, markJobStepDone, markJobStepError, listJobSteps } from '../job-checkpoints.js';
 import {
   loadSections, novelOf, orchestrateOutline, planAllChaptersBatched, saveOutlineVersion,
 } from '../novel-outline-ai.js';
@@ -19,6 +20,13 @@ function intOf(value, fallback = 0) {
 }
 
 export function registerNovelPipelineRoutes(app) {
+  ensureJobCheckpointSchema();
+
+  app.get('/api/pipeline/jobs/:jobId/steps', async (ctx) => {
+    try { ctx.json(listJobSteps(param(ctx, 'jobId'))); }
+    catch (error) { throw badRequest(error.message || '读取任务断点失败'); }
+  });
+
   app.get('/api/novels/:id/pipeline', async (ctx) => {
     try { ctx.json(pipelineSnapshot(param(ctx, 'id'))); }
     catch (error) { throw badRequest(error.message || '读取四步生产线状态失败'); }
@@ -46,37 +54,49 @@ export function registerNovelPipelineRoutes(app) {
         total: expected,
         payload: { action: 'pipeline-outline', novelId, batchSize, concurrency, sectionsConcurrency },
         handler: async (job) => {
-          let lastSaved = null;
-          const result = await planAllChaptersBatched(novel, loadSections(novelId), {
-            instruction,
-            concurrency,
-            sectionsConcurrency,
-            batchSize,
-            onlyEmptySections: body.onlyEmptySections !== false,
-            isCanceled: () => job.isCanceled(),
-            onProgress: (report) => {
-              if (!report?.steps) return;
-              const done = report.steps.reduce((sum, step) => sum + (Number(step.done) || 0) + (Number(step.planned) || 0), 0);
-              if (done) job.step(Math.min(done, expected), expected);
-            },
-            onBatch: ({ from, to, complete, sections: batchSections }) => {
-              lastSaved = saveOutlineVersion(novelId, batchSections, {
-                source: 'pipeline:outline-batch',
-                note: `四步生产线章纲：第${from}-${to}章`,
-              });
-              job.step(Math.min(complete, expected), expected);
-              job.log(`第 ${from}-${to} 章章纲已落盘（${complete}/${expected}）`);
-            },
-          });
-          return {
-            saved: lastSaved,
-            expected,
-            complete: result.complete,
-            planned: result.stats?.complete || 0,
-            remaining: result.remaining,
-            batches: result.batches,
-            warnings: result.warnings,
-          };
+          try {
+            markJobStepRunning(job.id, 'outline:job', { novelId, expected, batchSize });
+            let lastSaved = null;
+            const result = await planAllChaptersBatched(novel, loadSections(novelId), {
+              instruction,
+              concurrency,
+              sectionsConcurrency,
+              batchSize,
+              onlyEmptySections: body.onlyEmptySections !== false,
+              isCanceled: () => job.isCanceled(),
+              onProgress: (report) => {
+                if (!report?.steps) return;
+                const done = report.steps.reduce((sum, step) => sum + (Number(step.done) || 0) + (Number(step.planned) || 0), 0);
+                if (done) job.step(Math.min(done, expected), expected);
+              },
+              onBatch: ({ from, to, complete, sections: batchSections }) => {
+                lastSaved = saveOutlineVersion(novelId, batchSections, {
+                  source: 'pipeline:outline-batch',
+                  note: `四步生产线章纲：第${from}-${to}章`,
+                });
+                markJobStepDone(job.id, `outline:${from}-${to}`, {
+                  input: { novelId, from, to },
+                  result: { complete, saved: lastSaved },
+                });
+                job.step(Math.min(complete, expected), expected);
+                job.log(`第 ${from}-${to} 章章纲已落盘（${complete}/${expected}）`);
+              },
+            });
+            const output = {
+              saved: lastSaved,
+              expected,
+              complete: result.complete,
+              planned: result.stats?.complete || 0,
+              remaining: result.remaining,
+              batches: result.batches,
+              warnings: result.warnings,
+            };
+            markJobStepDone(job.id, 'outline:job', { input: { novelId, expected }, result: output });
+            return output;
+          } catch (error) {
+            markJobStepError(job.id, 'outline:job', error, { input: { novelId, expected } });
+            throw error;
+          }
         },
       });
       ctx.json({ ok: true, jobId, expected, batchSize, concurrency, sectionsConcurrency });
@@ -99,11 +119,27 @@ export function registerNovelPipelineRoutes(app) {
         title: `四步生产线 · 章节内容卡（第${from}-${to}章）`,
         total: to - from + 1,
         payload: { action: 'pipeline-chapter-cards', novelId, from, to },
-        handler: async (job) => generateChapterCards(novelId, {
-          from, to, onlyMissing, instruction,
-          isCanceled: () => job.isCanceled(),
-          onProgress: ({ done, total }) => job.step(done, total),
-        }),
+        handler: async (job) => {
+          try {
+            markJobStepRunning(job.id, 'cards:job', { novelId, from, to });
+            const output = await generateChapterCards(novelId, {
+              from, to, onlyMissing, instruction,
+              isCanceled: () => job.isCanceled(),
+              onProgress: ({ done, total, idx }) => {
+                markJobStepDone(job.id, `card:${idx}`, {
+                  input: { novelId, idx },
+                  result: { done, total },
+                });
+                job.step(done, total);
+              },
+            });
+            markJobStepDone(job.id, 'cards:job', { input: { novelId, from, to }, result: { generated: output.generated, skipped: output.skipped } });
+            return output;
+          } catch (error) {
+            markJobStepError(job.id, 'cards:job', error, { input: { novelId, from, to } });
+            throw error;
+          }
+        },
       });
       ctx.json({ ok: true, jobId, from, to, total: to - from + 1 });
     } catch (error) { throw badRequest(error.message || '创建章节内容卡任务失败'); }
