@@ -97,7 +97,10 @@ def main():
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(executable_path=CHROME, args=["--no-sandbox"])
+            launch = {"args": ["--no-sandbox"]}
+            if Path(CHROME).exists():
+                launch["executable_path"] = CHROME
+            browser = p.chromium.launch(**launch)
             page = browser.new_page(viewport={"width": 1720, "height": 1020})
             errs = []
             IGNORE = ("/data/", "favicon")     # 种子数据没有真实素材文件，/data 404 属预期噪音

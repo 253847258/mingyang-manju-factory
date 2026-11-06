@@ -590,6 +590,13 @@ def main(state=None):
            f"pan {pan_after_up} → {(dbg()['panX'], dbg()['panY'])} panning={dbg().get('panning')}")
 
         print("\n=== D. 小地图 ===")
+        if page.locator("#ac-drawer.open").count():
+            close_btn = page.locator("#ac-drawer .drawer-head button").first
+            if close_btn.count():
+                close_btn.click()
+            else:
+                page.keyboard.press("Escape")
+            page.wait_for_timeout(400)
         page.keyboard.press("f")
         page.wait_for_timeout(700)
         before = dbg()
@@ -598,7 +605,7 @@ def main(state=None):
         after = dbg()
         ok("点击小地图跳转视口", abs(after["panX"] - before["panX"]) > 5 or abs(after["panY"] - before["panY"]) > 5,
            f"{before['panX']:.0f},{before['panY']:.0f} → {after['panX']:.0f},{after['panY']:.0f}")
-        page.locator("#ac-minimap").click(position={"x": 20, "y": 20})
+        page.locator("#ac-minimap").click(position={"x": 20, "y": 20}, force=True)
         page.wait_for_timeout(400)
         ok("小地图点击左上角把视口带到内容起点", dbg()["panX"] > after["panX"] - 1)
         mm_toggle = page.locator("label[title='显示小地图'] input")

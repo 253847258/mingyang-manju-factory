@@ -854,7 +854,7 @@ def run_all():
         ok("生成子菜单含 7 个真实分类（脸部大图特写/多角度/多表情/头部多角度/姿态/手势/服饰细节）",
            bool(sub) and not kmiss, f"缺 {kmiss}｜子菜单={sub[:80]!r}".replace("\n", "/"))
         # 二级菜单：悬停某一分类 → 生成全部变体 / 自定义参数生成
-        page.locator(".ctx-sub .mi").filter(has_text="脸部大图特写").first.hover()
+        page.locator(".ctx-sub .mi").filter(has_text="脸部大图特写").first.hover(force=True)
         page.wait_for_timeout(600)
         subs = page.locator(".ctx-sub").all_inner_texts()
         deep = subs[-1] if subs else ""
