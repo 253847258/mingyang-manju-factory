@@ -2601,7 +2601,7 @@ function exportCanvasPNG() {
   g.fillStyle = '#080c14'; g.fillRect(0, 0, w, h);
   g.fillStyle = 'rgba(150,170,210,.9)';
   g.font = '600 18px sans-serif';
-  g.fillText(`AI 漫剧 · 明星阵容矩阵（${L.items.length} 位演员） · ${new Date().toLocaleString('zh-CN')}`, pad, pad - 12);
+  g.fillText(`铭扬漫剧 · 明星阵容矩阵（${L.items.length} 位演员） · ${new Date().toLocaleString('zh-CN')}`, pad, pad - 12);
   g.translate(pad - L.bounds.minX, pad + 20 - L.bounds.minY);
   for (const grp of L.groups) {
     if (!grp) continue;
@@ -3503,7 +3503,7 @@ async function spreadEpisodeDialog() {
  */
 async function planDialog() {
   let created = null;
-  try { created = (await api.post('/api/canvas/plans', { canvas_id: S.canvasId, created_by: 'human' })).plan; }
+  try { created = (await api.post('/api/execute/plans', { canvasId: S.canvasId, operator: 'human', title: '画布执行计划' })).plan; }
   catch (e) {
     const msg = String(e.message || e);
     if (msg.includes('没有可执行的节点')) {
@@ -3545,7 +3545,7 @@ async function planDialog() {
     el('div', { class: 'row', style: { gap: '8px', alignItems: 'center' } }, [
       el('button', { class: 'btn xs', onclick: async (ev) => {
         try {
-          const r = await api.post(`/api/canvas/plans/${encodeURIComponent(created.plan_id)}/approve`, { confirm: true, by: 'human' });
+          const r = await api.post(`/api/execute/plans/${encodeURIComponent(created.plan_id)}/approve`, { confirm: true, operator: 'human' });
           state.textContent = `已批准（${r.approved_at}）。确认码已打印在运行服务的终端，请填入下方输入框后执行。`;
           ev.target.disabled = true;
           toast('计划已批准（还需确认码才能执行）', 'ok', 3200);
@@ -3553,7 +3553,7 @@ async function planDialog() {
       } }, ['✅ 批准计划']),
       el('button', { class: 'btn xs', onclick: async () => {
         try {
-          await api.post(`/api/canvas/plans/${encodeURIComponent(created.plan_id)}/reject`, { reason: '人工拒绝', by: 'human' });
+          await api.post(`/api/execute/plans/${encodeURIComponent(created.plan_id)}/reject`, { reason: '人工拒绝', operator: 'human' });
           state.textContent = '已拒绝该计划（不会产生任何生成调用）';
           toast('已拒绝计划', 'ok');
         } catch (e) { toast('拒绝失败：' + e.message, 'err', 3600); }
@@ -3570,9 +3570,9 @@ async function planDialog() {
         const code = (codeInput.value || '').trim();
         if (!code) { toast('请先填写 6 位确认码（在运行服务的终端里）', 'warn', 3200); return; }
         try {
-          const r = await api.post(`/api/canvas/plans/${encodeURIComponent(created.plan_id)}/run`, { confirm_code: code });
+          const r = await api.post('/api/execute/run', { planId: created.plan_id, confirmCode: code });
           m.close();
-          const jobId = r.result?.job_id || r.job_id;
+          const jobId = r.result?.job_id || r.jobId || r.job_id;
           toast(`已开始执行（任务 ${jobId || '—'}，共 ${r.result?.total ?? runSteps.length} 个节点）`, 'ok', 3200);
           if (jobId) {
             const stop = api.watchJob(jobId, async (job) => {
@@ -3589,19 +3589,59 @@ async function planDialog() {
   });
 }
 
-/** 执行单个画布节点（视频片段 / 成片时间线等）：走 DAG 单点重跑 */
+/** 执行单个画布节点：先建 ExecuteGate 执行计划，人工批准并输入确认码后执行。 */
 async function runCanvasNode(nodeId, label = '节点') {
+  let created = null;
   try {
-    const r = await api.post('/api/canvas/run-node', { canvasId: S.canvasId, nodeId, overwrite: true });
-    toast(`已开始重跑${label}（任务 ${r.jobId}）`, 'ok', 2600);
-    const stop = api.watchJob(r.jobId, async (job) => {
-      if (['done', 'error', 'canceled'].includes(job.status)) {
-        stop?.();
-        await loadCanvas(); draw();
-        toast(job.status === 'done' ? `${label}已完成` : `${label}失败：${job.error || job.status}`, job.status === 'done' ? 'ok' : 'err', 4200);
-      }
-    });
-  } catch (e) { toast('执行失败：' + e.message, 'err', 3600); }
+    created = (await api.post('/api/execute/plans', {
+      canvasId: S.canvasId, nodeIds: [nodeId], overwrite: true, operator: 'human', title: `单节点重跑：${label}`,
+    })).plan;
+  } catch (e) { toast('生成单节点执行计划失败：' + e.message, 'err', 4200); return; }
+
+  const plan = created?.plan || {};
+  const runSteps = plan.steps?.run || [];
+  if (!runSteps.length) { toast('该节点没有需要执行的内容（可能已有最新产物）', 'info', 3600); return; }
+  const codeInput = el('input', { type: 'text', maxlength: '6', placeholder: '6 位确认码（见运行服务终端）', style: { width: '210px' } });
+  const state = el('div', { class: 'hint', text: `计划 ${created.plan_id} · 状态 ${created.status || 'pending'} · 成本级 ${created.cost_level || '—'}` });
+  const approveBtn = el('button', { class: 'btn xs', onclick: async () => {
+    try {
+      await api.post(`/api/execute/plans/${encodeURIComponent(created.plan_id)}/approve`, { confirm: true, operator: 'human' });
+      state.textContent = '已人工批准。请从运行服务终端读取 6 位确认码后执行。';
+      approveBtn.disabled = true;
+      toast('计划已批准（还需确认码）', 'ok', 3200);
+    } catch (e) { toast('批准失败：' + e.message, 'err', 3600); }
+  } }, ['✅ 批准计划']);
+  const m = modal({
+    title: `🧭 单节点执行闸门 · ${label}`,
+    width: 620,
+    body: el('div', { class: 'col', style: { gap: '10px' } }, [
+      state,
+      el('div', { class: 'small' }, [`将执行：${runSteps.map((x) => x.title || x.id).join('、')}`]),
+      el('div', { class: 'hint' }, ['所有画布执行统一经过 ExecuteGate：旧直跑接口已关闭。批准与确认码仍由人工完成，Agent 无法自动放行。']),
+      el('div', { class: 'row', style: { gap: '8px', flexWrap: 'wrap' } }, [approveBtn, codeInput]),
+    ]),
+    footer: [
+      el('button', { class: 'btn', onclick: () => m.close() }, ['取消']),
+      el('button', { class: 'btn primary', onclick: async () => {
+        const code = (codeInput.value || '').trim();
+        if (!code) { toast('请先填写 6 位确认码', 'warn', 3200); return; }
+        try {
+          const r = await api.post('/api/execute/run', { planId: created.plan_id, confirmCode: code });
+          const jobId = r.result?.job_id || r.jobId || r.job_id;
+          if (!jobId) throw new Error('执行请求未返回任务 id');
+          m.close();
+          toast(`已开始重跑${label}（任务 ${jobId}）`, 'ok', 2800);
+          const stop = api.watchJob(jobId, async (job) => {
+            if (['done', 'error', 'canceled'].includes(job.status)) {
+              stop?.();
+              await loadCanvas(); draw();
+              toast(job.status === 'done' ? `${label}已完成` : `${label}失败：${job.error || job.status}`, job.status === 'done' ? 'ok' : 'err', 4200);
+            }
+          });
+        } catch (e) { toast('执行被拒绝：' + e.message, 'err', 4200); }
+      } }, ['▶ 执行（需确认码）']),
+    ],
+  });
 }
 
 /** 时间线拼接顺序预览（dry-run：不生成，只按 clip1..N → slot → 创建时间解析） */

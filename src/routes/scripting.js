@@ -190,7 +190,7 @@ function otioOf(scriptId, episodeCode = '', fps = 24) {
     OTIO_SCHEMA: 'Timeline.1',
     name: script.title || script.id,
     global_start_time: rt(0),
-    metadata: { scriptId: script.id, fps, durationSeconds: Number(total.toFixed(3)), generatedBy: 'AI漫剧工厂 / 剧本工厂' },
+    metadata: { scriptId: script.id, fps, durationSeconds: Number(total.toFixed(3)), generatedBy: '铭扬漫剧工厂 / 剧本工厂' },
     tracks: {
       OTIO_SCHEMA: 'Stack.1',
       name: 'tracks',
@@ -237,7 +237,7 @@ function fcpxmlOf(scriptId, episodeCode = '', fps = 24) {
     `    <format id="r1" name="FFVideoFormat_${1080}p${fps}" frameDuration="${frameDur}" width="1080" height="1920"/>`,
     '  </resources>',
     '  <library>',
-    '    <event name="AI漫剧工厂">',
+    '    <event name="铭扬漫剧工厂">',
     `      <project name="${xml(script.title || script.id)}">`,
     `        <sequence format="r1" duration="${totalFrames}/${fps}s" tcStart="0/${fps}s" tcFormat="NDF">`,
     '          <spine>',

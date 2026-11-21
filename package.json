@@ -1,9 +1,9 @@
 {
-  "name": "ai-video-factory",
+  "name": "mingyang-manju-factory",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "AI漫剧-电影视频工厂：明星演员宫格矩阵定妆 + 小说工坊 + 剧本/分镜工厂",
+  "description": "铭扬漫剧自动化工厂：明星演员宫格矩阵定妆 + 小说工坊 + 剧本/分镜工厂，本地零依赖运行",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

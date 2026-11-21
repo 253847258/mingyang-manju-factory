@@ -1,4 +1,4 @@
-// AI漫剧-电影视频工厂 · 零依赖服务入口
+// 铭扬漫剧自动化工厂 · 零依赖服务入口
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -11,8 +11,8 @@ import { registerMetaRoutes } from './src/routes/meta.js';
 import { registerActorRoutes } from './src/routes/actors.js';
 import { registerRenderRoutes } from './src/routes/render.js';
 import { registerBridgeRoutes } from './src/routes/bridge.js';
-import { planGraph, createGraphRunJob, runSingleNode, nodeRuns, graphStatus } from './src/graph.js';
-import { badRequest } from './src/http.js';
+import { planGraph, nodeRuns, graphStatus } from './src/graph.js';
+import { badRequest, HttpError } from './src/http.js';
 import { llmStatus } from './src/llm.js';
 import { imageBackendStatus } from './src/image.js';
 import { registerMcpRoutes } from './src/mcp-server.js';
@@ -26,12 +26,22 @@ import { registerDurationRoutes } from './src/routes/duration.js';
 import { registerEditRoutes } from './src/routes/edit.js';
 import { registerGateRoutes } from './src/routes/gates.js';
 import { isGatedPath, checkScriptGate, checkContractGate, checkAnchorGate, replayRequest } from './src/gate-middleware.js';
+import {
+  checkDeliveryGate,
+  checkProductionDeliveryGate,
+  deliveryGateQuery,
+  isDeliveryDownload,
+  productionDeliveryId,
+} from './src/delivery-gate.js';
 import { ensureEditSchema } from './src/edit-timeline.js';
 import { registerNovelAiRoutes } from './src/routes/novel-ai.js';
 import { registerNovelPipelineRoutes } from './src/routes/novel-pipeline.js';
 import { registerScriptingRoutes } from './src/routes/scripting.js';
 import { registerCanvasEnhanceRoutes } from './src/routes/canvas-enhance.js';
 import { registerAssetRoutes } from './src/routes/assets.js';
+import { registerExecuteGateRoutes } from './src/routes/execute-gate.js';
+import { isLegacyPlanExecution } from './src/execute-gate.js';
+import { registerGovernanceRoutes } from './src/routes/governance.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.join(__dirname, 'web');
@@ -81,18 +91,18 @@ app.post('/api/canvas/plan', async (ctx) => {
   try { ctx.json({ ok: true, plan: planGraph((await ctx.body()) || {}) }); }
   catch (e) { throw badRequest(e.message); }
 });
-app.post('/api/canvas/run', async (ctx) => {
-  try { ctx.json({ ok: true, ...createGraphRunJob((await ctx.body()) || {}) }); }
-  catch (e) { throw badRequest(e.message); }
+app.post('/api/canvas/run', async () => {
+  throw new HttpError(403, '画布直跑入口已关闭：请改用 /api/execute/plans → 人工批准 → /api/execute/run');
 });
-app.post('/api/canvas/run-node', async (ctx) => {
-  try { ctx.json({ ok: true, ...runSingleNode((await ctx.body()) || {}) }); }
-  catch (e) { throw badRequest(e.message); }
+app.post('/api/canvas/run-node', async () => {
+  throw new HttpError(403, '单节点直跑入口已关闭：请改用 /api/execute/plans → 人工批准 → /api/execute/run');
 });
 app.get('/api/canvas/node-runs', async (ctx) => ctx.json({ ok: true, runs: nodeRuns({ nodeId: ctx.query.node_id || null, canvasId: ctx.query.canvas_id || null, limit: Number(ctx.query.limit) || 50 }) }));
 app.get('/api/graph/status', async (ctx) => ctx.json({ ok: true, ...graphStatus(ctx.query.canvas_id || 'CV-MAIN') }));
 
 registerMcpRoutes(app);   // P4：人类审批入口 + Agent HTTP 桥（/api/canvas/plans*、/api/mcp/*）
+registerExecuteGateRoutes(app); // 唯一执行门面：计划 → 人工批准 → 确认码 → 一次性执行
+registerGovernanceRoutes(app);  // 执行完成后的成本/血缘/订单/资产快照自动回写
 registerStudioRoutes(app);   // 自动化制片 Agent：/api/studio/productions*
 registerNovelAdaptRoutes(app);   // 小说改编工作台：上传小说 → 剧本/角色/场景/道具/提示词/资产清单
 registerNovelAiRoutes(app);      // 小说工坊：故事框架 AI 自动填写 + 角色卡提交
@@ -106,6 +116,18 @@ registerGateRoutes(app);  // 生产闸门：剧本硬门禁 / 镜头契约 / 强
 // 定时排产（§10.1）：注册的同时托管 tick 定时器（.unref() 不阻塞退出）。
 // 必须排在 recoverStaleJobs()（第 31 行）之后：否则重启瞬间会把上一次被标记为中断的任务当成「上一轮还在跑」（S-07）。
 registerSchedulesRoutes(app);
+
+app.get('/api/render/delivery-gate', async (ctx) => {
+  ctx.json(await checkDeliveryGate({
+    scriptId: ctx.query.scriptId || ctx.query.script_id,
+    code: ctx.query.code,
+    timelineId: ctx.query.timelineId || ctx.query.timeline_id,
+    versionNo: ctx.query.versionNo || ctx.query.version_no || null,
+  }));
+});
+app.get('/api/studio/productions/:id/delivery-gate', async (ctx) => {
+  ctx.json(await checkProductionDeliveryGate(ctx.params.id));
+});
 
 // 模块2 / 模块3 路由（缺失时降级为 501，保证服务可启动）
 async function tryRegister(relPath, exportName, label) {
@@ -152,6 +174,28 @@ const staticOpts = {
 // 后端请求级闸门：渲染类 POST 在进入混淆层路由前先查剧本审核。
 // 未通过 → 409（带中文说明）；带 force:true → 放行并写审计。
 const server = createServer((req, res) => {
+  if (req.method === 'POST' && isLegacyPlanExecution(req.url)) {
+    res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ ok: false, error: '旧画布计划执行入口已关闭：请改用 /api/execute/run（批准与确认码规则不变）' }));
+    return Promise.resolve();
+  }
+  if (req.method === 'GET' && (isDeliveryDownload(req.url) || productionDeliveryId(req.url))) {
+    const productionId = productionDeliveryId(req.url);
+    const gateCheck = productionId
+      ? checkProductionDeliveryGate(productionId)
+      : checkDeliveryGate(deliveryGateQuery(req.url));
+    return gateCheck.then((gate) => {
+      if (!gate.ok) {
+        res.writeHead(409, { 'content-type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, ...gate }));
+        return;
+      }
+      return handle(req, res, staticOpts);
+    }).catch((error) => {
+      res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: false, gate: 'delivery', error: `交付门禁异常：${error.message || error}` }));
+    });
+  }
   if (req.method === 'POST' && isGatedPath(req.url)) {
     // createServer 要求 handler 返回 Promise（内部会 .catch），这里必须显式包装
     return new Promise((resolve, reject) => {
@@ -216,7 +260,7 @@ server.listen(PORT, HOST, () => {
   const l = llmStatus();
   const i = imageBackendStatus();
   console.log('==========================================================');
-  console.log('  AI漫剧-电影视频工厂 已启动');
+  console.log('  铭扬漫剧自动化工厂 已启动');
   console.log(`  界面： http://${HOST}:${PORT}/`);
   console.log(`  数据： ${DATA_DIR}`);
   console.log(`  LLM ： ${l.provider} / ${l.model} ${l.hasKey ? '（Key 已配置）' : '（未配置 Key → 可在设置页填写或切 mock）'}`);

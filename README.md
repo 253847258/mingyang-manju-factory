@@ -1,17 +1,29 @@
-# AI 漫剧 · 电影视频工厂
+# 铭扬漫剧自动化工厂
 
-一套本地运行的 **「明星定妆 → 小说 → 剧本分镜」** 一体化生产工作台。零外部依赖（只需 Node ≥ 22），打开浏览器即用。
+铭扬漫剧自动化工厂是一套**本地运行**的一体化内容生产工作台：**明星定妆 → 小说 → 剧本 / 分镜 → 关键帧 → 视频 → 成片 → 后期精修 → 交付**。零第三方运行时依赖（只需 Node.js ≥ 22），浏览器打开即用，素材与数据全部留在本机 `data/`。
+
+## 快速开始
 
 ```bash
-cd ai-video-factory
-node server.js          # 或 npm start
+git clone <仓库地址> mingyang-manju-factory
+cd mingyang-manju-factory
+cp config/config.example.json config/config.json   # 首次配置
+cp config/local.env.example config/local.env       # 填模型 Key（切勿提交）
+npm start                                          # 或 node server.js
 # 浏览器打开 http://127.0.0.1:8788/
 ```
 
-> 首次使用建议先跑一次自检：`./scripts/verify-all.sh`（**35 个阶段**；**第 9 波**实测 **35/35 阶段全部通过、断言合计 3519、失败 0、退出码 0** —— **阶段数固定为 35，合计不是固定值**，一律以脚本输出为准，末行打印 `✅ 全部自检通过`）。
-> **计数口径**：**阶段数固定为 35**（脚本里现有 35 个 `run` 阶段：25 个原有 + 第 4 波 26~30 + 第 5 波 31~34 + 第 6 波 35）；**单阶段断言数与其合计数会随代码演进**，README 不复制它们，**一律以 `./scripts/verify-all.sh` 的实际输出为准**（每阶段结尾都打印 `=== 结果：N 通过 / 0 失败 ===`，运行标签是 `N/35`；脚本头部注释与第 12 阶段标题已按实测校准为「35 个阶段 / 41 个工具」）。
+- **环境**：Node.js ≥ 22；FFmpeg 建议自行安装（仓库不含二进制，程序优先用 `bin/ffmpeg`，没有则回落到系统 ffmpeg）
+- **离线模式**：`npm run offline`（占位出图 + mock LLM，不花钱也能跑通全流程）
+- **测试**：`npm test`（快速 34 套件）｜`npm run test:full`（全量 61 套件，含全模块离线模拟）
+- **数据与密钥**：`data/`、`config/config.json`、`config/local.env` 均在 `.gitignore` 内，永不入库
+- **许可**：MIT，见 [LICENSE](./LICENSE)
+
+## 自检与文档
+
+> 首次使用建议先跑一次自检：`./scripts/verify-all.sh`（**35 个阶段**，末行打印 `✅ 全部自检通过`；阶段数固定 35，断言合计以脚本输出为准）。
 > 想先看看效果：`node scripts/seed-demo.js`（写入 10 位演示演员 + 宫格排布 + 定妆图）
-> 本轮模拟发现并修复的问题清单（含复现与回归）：`docs/模拟发现的问题与修复.md`
+> 模拟发现并修复的问题清单：`docs/模拟发现的问题与修复.md`
 > 详细操作说明：`docs/使用手册.md`｜模块 2：`docs/模块2-使用说明.md`｜模块 3：`docs/模块3-使用说明.md`｜模块 4：`docs/模块4-使用说明.md`
 
 ---

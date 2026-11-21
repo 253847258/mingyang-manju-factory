@@ -143,7 +143,7 @@ async function bootstrap() {
   const topbar = el('div', { class: 'topbar' }, [
     el('div', { class: 'brand' }, [
       el('span', { class: 'logo' }, ['🎬']),
-      el('div', {}, [el('div', { text: 'AI 漫剧 · 电影视频工厂' }), el('small', { text: '明星定妆 → 小说 → 剧本分镜 一体化生产' })]),
+      el('div', {}, [el('div', { text: '铭扬漫剧自动化工厂' }), el('small', { text: '明星定妆 → 小说 → 剧本分镜 一体化生产' })]),
     ]),
     el('div', { class: 'nav' }, MODULES.map((m) => el('button', { dataset: { id: m.id }, title: m.desc, onclick: () => navigate(m.id) }, [
       el('span', { text: m.icon }), el('span', { text: m.title }),

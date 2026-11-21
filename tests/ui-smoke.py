@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AI漫剧-电影视频工厂 · 前端端到端冒烟测试
+"""铭扬漫剧自动化工厂 · 前端端到端冒烟测试
 用法：
     node server.js &            # 先启动服务（默认 8788）
     python3 tests/ui-smoke.py [baseUrl]

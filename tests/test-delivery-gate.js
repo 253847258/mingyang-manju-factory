@@ -1,0 +1,11 @@
+#!/usr/bin/env node
+import assert from 'node:assert/strict'; import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
+const TMP=fs.mkdtempSync(path.join(os.tmpdir(),'delivery-gate-')); process.env.FACTORY_DB=path.join(TMP,'dg.db'); process.env.FACTORY_DATA_DIR=path.join(TMP,'data'); process.env.FACTORY_CONFIG=path.join(TMP,'config.json');
+fs.mkdirSync(process.env.FACTORY_DATA_DIR,{recursive:true}); fs.writeFileSync(process.env.FACTORY_CONFIG,JSON.stringify({llm:{provider:'mock'},image:{backend:'placeholder'},video:{backend:'placeholder'},tts:{backend:'none'}}));
+const { migrate,run }=await import('../src/db.js'); const { ensureEditSchema }=await import('../src/edit-timeline.js'); const { checkDeliveryGate }=await import('../src/delivery-gate.js');
+migrate(); ensureEditSchema(); let pass=0,fail=0; async function check(n,f){try{const d=await f();pass++;console.log(`  PASS ${n}${d?' -> '+d:''}`)}catch(e){fail++;console.error(`  FAIL ${n} -> ${e.message}`)}}
+await check('没有后期时间线时禁止交付',async()=>{const g=await checkDeliveryGate({scriptId:'SC-NONE',code:'S01E001'});assert.equal(g.ok,false);assert.equal(g.gate,'delivery-version');return g.error});
+run(`INSERT INTO edit_timelines(id,script_id,episode_id,code,doc_version,status,source,operator,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,'TL-DG','SC-DG','EP-DG','S01E001',1,'draft','test','tester','',new Date().toISOString(),new Date().toISOString());
+await check('时间线未锁定时禁止交付',async()=>{const g=await checkDeliveryGate({scriptId:'SC-DG',code:'S01E001',timelineId:'TL-DG'});assert.equal(g.ok,false);assert.match(g.error,/尚未锁定/);return g.error});
+await check('交付下载路由识别正确',async()=>{const m=await import('../src/delivery-gate.js');assert.equal(m.isDeliveryDownload('/api/render/deliver?code=S01E001'),true);assert.equal(m.isDeliveryDownload('/api/render/deliver/manifest?code=S01E001'),false);assert.equal(m.isProductionDeliveryDownload('/api/studio/productions/P-1/delivery'),true);assert.equal(m.productionDeliveryId('/api/studio/productions/P-1/delivery?x=1'),'P-1');return 'all delivery downloads gated'});
+console.log(`\n=== 结果：${pass} 通过 / ${fail} 失败 ===`); fs.rmSync(TMP,{recursive:true,force:true}); if(fail)process.exitCode=1;

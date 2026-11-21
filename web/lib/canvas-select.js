@@ -149,11 +149,11 @@ export const BATCH_ACTIONS = Object.freeze({
 
 /** 付费重跑必须走完的审批链路（spec §4.6.1 调用顺序，逐步骤固定） */
 export const RERUN_APPROVAL_CHAIN = Object.freeze([
-  'POST /api/canvas/plan            {canvasId, nodeIds, overwrite}  —— 零付费，只出计划',
-  'POST /api/canvas/plans           {canvas_id, created_by:"human"} —— 建人工审批单',
-  'POST /api/canvas/plans/:id/approve {confirm:true, by:"human"}     —— 人工批准',
+  'POST /api/canvas/plan             {canvasId, nodeIds, overwrite} —— 零付费 dry-run 计划',
+  'POST /api/execute/plans           {canvasId, operator}            —— 建人工审批单',
+  'POST /api/execute/plans/:id/approve {confirm:true, operator}      —— 人工批准',
   '终端打印 6 位确认码（接口只返回掩码）',
-  'POST /api/canvas/plans/:id/run   {confirm_code}                  —— 一次性消费确认码后执行',
+  'POST /api/execute/run            {planId, confirmCode}           —— 一次性消费确认码后执行',
 ]);
 
 /** 批处理**绝对禁止**调用的入口（它们绕过 authorizeRun 闸门，spec R1 硬性禁止） */

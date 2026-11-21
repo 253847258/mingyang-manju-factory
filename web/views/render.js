@@ -1993,6 +1993,14 @@ async function showProductionStats() {
 async function deliverPackage() {
   const { scriptId, code } = cur();
   if (!scriptId || !code) return;
+  let gate = null;
+  try {
+    gate = await ctxRef.api.get(`/api/render/delivery-gate?scriptId=${encodeURIComponent(scriptId)}&code=${encodeURIComponent(code)}`);
+  } catch (e) {
+    const denied = e?.data || e?.detail || {};
+    toast(`交付被拦截${denied.gate ? `（${denied.gate}）` : ''}：${denied.error || e.message || '请先锁版并处理质检问题'}`, 'err', 6200);
+    return;
+  }
   let m = null;
   try {
     const r = await ctxRef.api.get(`/api/render/deliver/manifest?scriptId=${encodeURIComponent(scriptId)}&code=${encodeURIComponent(code)}`);
@@ -2002,6 +2010,7 @@ async function deliverPackage() {
 
   const rows = [];
   rows.push(`剧本：${m.script.title}（${m.script.id}）`);
+  rows.push(`交付版本：时间线 ${gate.timelineId}｜第 ${gate.versionNo} 版｜成片 ${gate.filmId}｜QC ${gate.qcVerdict || 'warn'}`);
   rows.push(`集数：${m.episodes.length}｜镜头：${m.totals.shots}｜关键帧：${m.totals.keyframes}｜视频：${m.totals.videos}｜成片时长：${m.totals.filmSeconds.toFixed(1)}s`);
   rows.push(`打包：${m.files.length} 个清单文件 + 素材原文件｜合计约 ${(m.totalBytes / 1048576).toFixed(1)} MB`);
   rows.push('质检：打包时逐集跑质检（黑帧/静音/响度/流缺失/时长），报告随包交付');
@@ -2031,7 +2040,10 @@ async function deliverPackage() {
           class: 'rd-btn rd-primary',
           onclick: () => {
             const assets = withAssets.checked ? '1' : '0';
-            window.open(`/api/render/deliver?scriptId=${encodeURIComponent(scriptId)}&code=${encodeURIComponent(code)}&assets=${assets}`, '_blank');
+            const qs = new URLSearchParams({
+              scriptId, code, assets, timelineId: gate.timelineId || '', versionNo: String(gate.versionNo || ''),
+            });
+            window.open(`/api/render/deliver?${qs.toString()}`, '_blank');
             m2.close();
             toast('交付包开始下载（含成片/字幕/分镜表/报告/EDL）', 'ok');
           },

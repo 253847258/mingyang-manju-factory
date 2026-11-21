@@ -33,7 +33,7 @@ const valueOf = (f, def = null) => {
 
 if (has('--help') || has('-h')) {
   console.error([
-    'AI漫剧-电影视频工厂 · MCP 入口（P4 Agent 接口 + 人类审核闸门）',
+    '铭扬漫剧自动化工厂 · MCP 入口（P4 Agent 接口 + 人类审核闸门）',
     '',
     '  node scripts/mcp.js                  stdio 模式（MCP 客户端用）',
     '  node scripts/mcp.js --http           HTTP 模式（人工审批界面 + Agent HTTP 桥）',

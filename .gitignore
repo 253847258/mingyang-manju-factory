@@ -60,3 +60,10 @@ Thumbs.db
 
 # 本地 Python UI 测试环境
 .venv-playwright/
+
+# Python 缓存（测试脚本运行产生）
+__pycache__/
+*.pyc
+
+# 开发主脑控制面（内部工具，未接入产品，不入开源仓库）
+control-plane/

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AI漫剧-电影视频工厂 · 前端 UI 功能模拟测试（Playwright 真实交互）
+"""铭扬漫剧自动化工厂 · 前端 UI 功能模拟测试（Playwright 真实交互）
 
 用法：
     node server.js                                  # 先启动服务（默认 8788），本脚本不重启服务

@@ -227,7 +227,7 @@ async function loadPlanDetail(planId) {
   if (!planId) return;
   S.planLoading = true;
   try {
-    const r = await C.api.get(`/api/canvas/plans/${encodeURIComponent(planId)}`);
+    const r = await C.api.get(`/api/execute/plans/${encodeURIComponent(planId)}`);
     S.planDetail = r?.plan || null;
     if (Array.isArray(r?.audits)) S.planDetail = { ...S.planDetail, audits: r.audits };
   } catch (e) {
@@ -536,7 +536,36 @@ async function finishJob(job) {
     if (Array.isArray(res.executed) && res.executed.length) logLine(`本次执行阶段：${res.executed.map(stageName).join(' → ')}`);
   }
   S.job = { ...S.job, ...(job || {}), id };
+  const awaitingStage = res.awaiting?.stage || (res.reason === 'awaiting_approval' ? res.stoppedAt : null);
+  const governedStages = [...new Set((Array.isArray(res.executed) && res.executed.length
+    ? res.executed
+    : [res.stage || S.job?.stage]).filter((stage) => stage && stage !== awaitingStage))];
+  if (st === 'done' && governedStages.length) {
+    try {
+      const wb = await C.api.post(`/api/studio/productions/${encodeURIComponent(S.pid)}/governance/writeback`, {
+        stages: governedStages, jobId: id, operator: '制片 Agent 自动回写',
+      });
+      logLine(`🧾 治理回写完成：${governedStages.map(stageName).join(' → ')}（成本/血缘/订单/快照）`, 'ok');
+      const skipped = (wb?.results || []).filter((x) => x?.skipped);
+      if (skipped.length) logLine(`治理回写跳过 ${skipped.length} 个未完成阶段：${skipped.map((x) => `${stageName(x.stage)}（${x.reason || x.status || '未完成'}）`).join('；')}`, 'warn');
+      if (wb?.results?.some((x) => x?.result?.snapshot?.skipped)) logLine('部分阶段没有可冻结的正式资产，已跳过资产快照', 'warn');
+    } catch (e) {
+      logLine(`治理回写失败（不阻断生产）：${errText(e)}`, 'warn');
+    }
+  }
   await refreshDetail(true);
+  const awaitingAgain = res.reason === 'awaiting_approval' || Boolean(res.awaiting);
+  const projectDone = ['done', 'completed', 'delivered'].includes(String(S.detail?.status || '').toLowerCase());
+  if (st === 'done' && !awaitingAgain && !projectDone && !S.autoContinueInFlight && S.pid) {
+    S.autoContinueInFlight = true;
+    logLine('⚙ 审批已放行，任务完成，自动继续到下一闸门…', 'ok');
+    const timer = setTimeout(async () => {
+      try { await startRun(); }
+      catch (e) { fail(errText(e, '自动续跑失败')); }
+      finally { S.autoContinueInFlight = false; }
+    }, 900);
+    timers.push(timer);
+  }
 }
 
 async function startRun() {
@@ -570,7 +599,7 @@ async function approvePlan() {
   if (!planId) { fail('当前没有待批准的执行计划'); return; }
   S.gateMsg = '';
   try {
-    await C.api.post(`/api/canvas/plans/${encodeURIComponent(planId)}/approve`, { confirm: true, by: 'human' });
+    await C.api.post(`/api/execute/plans/${encodeURIComponent(planId)}/approve`, { confirm: true, operator: 'human' });
     S.gateMsg = '';
     logLine(`✅ 计划 ${planId} 已批准（人工）`);
     say('计划已批准，请填入服务端终端打印的 6 位确认码后点「▶ 继续执行」', 'ok');
@@ -591,7 +620,7 @@ async function rejectPlan() {
   if (!ok) return;
   S.gateMsg = '';
   try {
-    await C.api.post(`/api/canvas/plans/${encodeURIComponent(planId)}/reject`, { by: 'human', reason: '人工拒绝（制片 Agent 控制台）' });
+    await C.api.post(`/api/execute/plans/${encodeURIComponent(planId)}/reject`, { operator: 'human', reason: '人工拒绝（制片 Agent 控制台）' });
     logLine(`⛔ 计划 ${planId} 已被人工拒绝`, 'warn');
     say('计划已拒绝', 'info');
     await loadPlanDetail(planId);
@@ -661,10 +690,21 @@ async function copyText(text, label) {
   }
 }
 
-function openDelivery() {
+async function openDelivery() {
   if (!S.pid) return;
-  const url = `/api/studio/productions/${encodeURIComponent(S.pid)}/delivery`;
-  window.open(url, '_blank');
+  try {
+    const gate = await C.api.get(`/api/studio/productions/${encodeURIComponent(S.pid)}/delivery-gate`);
+    logLine(`🔒 交付门禁通过：${gate.episodes?.length || 0} 集均已锁版并完成 QC`, 'ok');
+    const url = `/api/studio/productions/${encodeURIComponent(S.pid)}/delivery`;
+    window.open(url, '_blank');
+  } catch (e) {
+    const gate = e?.data || e?.detail || {};
+    const msg = `交付被拦截${gate.gate ? `（${gate.gate}）` : ''}：${gate.error || e.message || '未知原因'}`;
+    S.gateMsg = msg;
+    logLine(`⛔ ${msg}`, 'err');
+    say(msg, 'err');
+    renderDynamic();
+  }
 }
 
 function itemMenu(ev, p) {
@@ -791,11 +831,11 @@ function emptyCard() {
       el('br'),
       '2) 点「🧭 生成生产计划」→ 后端解析需求并建立 10 个阶段的清单；',
       el('br'),
-      '3) 点「▶ 开始执行（免费阶段）」跑免费阶段，遇到「关键帧出图 / 视频生成」会停下等待人工批准；',
+      '3) 点「🚀 一键开始生产」自动跑免费阶段；遇到付费阶段会停下等待人工批准；',
       el('br'),
       '4) 在「人工审核闸门」点「✅ 批准计划」，再看服务端终端打印的 6 位确认码，填入后点「▶ 继续执行」；',
       el('br'),
-      '5) 付费阶段跑完后再点一次「▶ 开始执行（免费阶段）」，完成成片 → 质检 → 交付包。',
+      '5) 每次批准并输入确认码后，系统会自动继续到下一闸门，最终完成成片 → 质检 → 交付包。',
     ]),
     S.listError ? el('div', { class: 'small', style: { marginTop: '8px', color: 'var(--err)' } }, [S.listError]) : null,
   ]);
@@ -927,7 +967,7 @@ function runCard() {
       el('div', { style: ST.h }, ['▶ 执行']),
       job.status ? el('span', { class: 'tag ' + (job.status === 'error' ? 'err' : job.status === 'done' ? 'ok' : 'accent'), text: `${s(job.title, '任务')}：${JOB_STATUS[job.status] || s(job.status)}` }) : null,
       el('div', { class: 'grow' }),
-      el('button', { class: 'btn primary sm', disabled: running, onclick: startRun }, [running ? '执行中…' : '▶ 开始执行（免费阶段）']),
+      el('button', { class: 'btn primary sm', disabled: running, onclick: startRun }, [running ? '执行中…' : '🚀 一键开始生产']),
       el('button', { class: 'btn sm', onclick: () => window.open(`/api/jobs/${encodeURIComponent(job.id)}`, '_blank'), disabled: !job.id }, ['查看任务 JSON']),
     ]),
     running || job.status ? el('div', { style: { marginTop: '10px' } }, [
@@ -945,7 +985,7 @@ function runCard() {
       return el('div', { class: 'small', style: { marginTop: '8px', color: 'var(--warn)', lineHeight: 1.7 } }, [
         `付费阶段「${stale.map((x) => stageName(x.id)).join('、')}」的任务已结束（${JOB_STATUS[S.job.status] || s(S.job.status)}），但后端阶段状态仍为「执行中」、未回写「已完成」。`,
         el('br'),
-        '点「▶ 开始执行（免费阶段）」可继续跑后续阶段；若后端再次要求人工批准，请重新走一次闸门流程。',
+        '系统会自动继续到下一闸门；只有新的付费阶段需要再次人工批准。',
       ]);
     })(),
     el('div', { class: 'label small muted', style: { marginTop: '10px' } }, ['执行日志']),
@@ -1007,7 +1047,7 @@ function gateCard() {
         el('br'),
         runningPaid.job_id ? `执行任务：${s(runningPaid.job_id)}（${done ? (JOB_STATUS[S.job.status] || s(S.job.status)) : '执行中/待后端刷新状态'}）` : '后端未返回执行任务 id。',
         el('br'),
-        '付费阶段跑完后，点「▶ 开始执行（免费阶段）」继续后续阶段（成片 → 质检 → 交付包）。',
+        '付费阶段完成后会自动继续到下一闸门，最终自动完成成片、质检和交付准备。',
       ]),
     ]);
   }
