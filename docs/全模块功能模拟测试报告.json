@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-11-21T01:44:59.212Z",
-  "seconds": 38.8,
+  "generatedAt": "2026-11-21T18:06:54.837Z",
+  "seconds": 38.6,
   "pass": 83,
   "fail": 0,
   "env": {
@@ -16,7 +16,7 @@
       "feature": "健康检查：服务/LLM/出图/任务队列/计数结构完整",
       "ok": true,
       "ev": "LLM=mock/就绪 出图=placeholder 队列={}",
-      "ms": 15
+      "ms": 14
     },
     {
       "mod": "0 · 引擎与基础设施",
@@ -30,14 +30,14 @@
       "feature": "出图分类清单：9 类镜头（脸部特写/多角度/表情/头部/姿态/手势/服饰…）",
       "ok": true,
       "ev": "10 类 / 63 个变体",
-      "ms": 2
+      "ms": 1
     },
     {
       "mod": "0 · 引擎与基础设施",
       "feature": "随机生成参数：seed/风格/比例/光线等可取",
       "ok": true,
       "ev": "4 项：seed, cfg, steps, sampler",
-      "ms": 2
+      "ms": 1
     },
     {
       "mod": "0 · 引擎与基础设施",
@@ -51,14 +51,14 @@
       "feature": "出图后端自检（placeholder 就绪）",
       "ok": true,
       "ev": "placeholder 可用",
-      "ms": 46
+      "ms": 47
     },
     {
       "mod": "0 · 引擎与基础设施",
       "feature": "上传参考文档 + 回读文本（模块2/3 参考文献通路）",
       "ok": true,
-      "ev": "../../../../../var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-w3pHpY/data/uploads/2026-11-21/1795225460897_sim-ref.txt（132 字节）",
-      "ms": 6
+      "ev": "../../../../../var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-S5NRDG/data/uploads/2026-11-21/1795284376782_sim-ref.txt（132 字节）",
+      "ms": 4
     },
     {
       "mod": "0 · 引擎与基础设施",
@@ -72,7 +72,7 @@
       "feature": "非法输入保护：未知路由 404 JSON / 非法 JSON body 400",
       "ok": true,
       "ev": "未知路由 404 / 坏 JSON 400",
-      "ms": 1
+      "ms": 2
     },
     {
       "mod": "0 · 引擎与基础设施",
@@ -86,7 +86,7 @@
       "feature": "创建 3 位演员（性别/种族/身高/体型/风格/角色类型全字段）",
       "ok": true,
       "ev": "C-0001 / C-0002 / C-0003（含英文锚点与中文描述）",
-      "ms": 5
+      "ms": 4
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
@@ -107,7 +107,7 @@
       "feature": "9 类镜头的正/负向提示词均可生成（英文 + 负向）",
       "ok": true,
       "ev": "10 类共 63 条变体：英文正向零中文残留，中文版齐备，剔除记录 [\"wearing 黑色风衣\"]",
-      "ms": 60
+      "ms": 59
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
@@ -120,36 +120,36 @@
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "生成单人定妆图（文生图）→ 落盘 + 落库 + 绑定主图",
       "ok": true,
-      "ev": "/var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-w3pHpY/data/images/C-0001/full_front_20261121014420_219229.png（183.4KB）已设为主图",
-      "ms": 75
+      "ev": "/var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-S5NRDG/data/images/C-0001/full_front_20261121180616_49d20c.png（183.4KB）已设为主图",
+      "ms": 76
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "批量生成：2 演员 × 2 变体（表情）",
       "ok": true,
       "ev": "4 张表情图完成，素材库共 5 张",
-      "ms": 281
+      "ms": 263
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "参考生图（useRef=true）：以上一张为主图参考继续出图",
       "ok": true,
       "ev": "服饰细节图入库（参考生图通路），素材库 6 张",
-      "ms": 73
+      "ms": 67
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "上传演员参考图（multipart）并写回档案",
       "ok": true,
-      "ev": "../../../../../var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-w3pHpY/data/images/C-0001/ref_1795225461402.png 已写入档案",
-      "ms": 2
+      "ev": "../../../../../var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-S5NRDG/data/images/C-0001/ref_1795284377263.png 已写入档案",
+      "ms": 3
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "演员排序 / 复制（画布唯一提示）",
       "ok": true,
       "ev": "排序可逆（3 人），复制出新 ID 后已清理",
-      "ms": 5
+      "ms": 7
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
@@ -163,56 +163,56 @@
       "feature": "拖动单个卡位 / 批量 upsert 坐标",
       "ok": true,
       "ev": "单点 (333,222) + 批量 2 点，回读 x=100",
-      "ms": 4
+      "ms": 3
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "按角色类型分组排布 + 一键成组（分组框生成）",
       "ok": true,
       "ev": "3 个分组：男主 / 女主 / 反派",
-      "ms": 8
+      "ms": 7
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "视图持久化：缩放/平移/背景/网格/小地图存回画布",
       "ok": true,
       "ev": "zoom 0.42 / bg lines / grid 80 / 原样存回 0.001（前端钳制 5%~800%）/ 非法画布 404",
-      "ms": 3
+      "ms": 4
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "环境/物品节点：创建 + 编辑（含标签与描述）",
       "ok": true,
-      "ev": "场景 ND-mwpqvzcjbow / 物品 ND-mwpqvzckas6，非法类型已拦截",
+      "ev": "场景 ND-mwqpyr49kun / 物品 ND-mwqpyr4akzg，非法类型已拦截",
       "ms": 4
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "参考图矩阵：批量上传参考图生成矩阵节点并自动成组",
       "ok": true,
-      "ev": "3 个参考图节点（自动成组 GP-mwpqvzcoa32b49）",
-      "ms": 4
+      "ev": "3 个参考图节点（自动成组 GP-mwqpyr4f5fd3db）",
+      "ms": 3
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "节点参考图增删与主参考图（供关键帧参考生图）",
       "ok": true,
       "ev": "参考图 2 张，主参考图（数组首位）data/uploads/c.png",
-      "ms": 2
+      "ms": 3
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "关系线：演员→场景 / 物品→演员 / 场景→物品（带左右端口）",
       "ok": true,
       "ev": "3 条关系线（出现在/持有/场景道具）",
-      "ms": 4
+      "ms": 3
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "关系线幂等与非法拦截：重复不新增、自连拒绝、缺参拒绝",
       "ok": true,
-      "ev": "重复→返回同一条 LK-mwpqvzctfa6818（总数仍 3），自连 400，缺参 400",
-      "ms": 4
+      "ev": "重复→返回同一条 LK-mwqpyr4k40ec34（总数仍 3），自连 400，缺参 400",
+      "ms": 2
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
@@ -233,56 +233,56 @@
       "feature": "节点分组：手动成组 / 改名 / 改色 / 收起展开 / 整体移动",
       "ok": true,
       "ev": "成组/改名/改色/收起/移动/解散（保留节点）全部通过",
-      "ms": 5
+      "ms": 7
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "便签节点：新建 / 改文字与颜色 / 拖动 / 删除",
       "ok": true,
-      "ev": "便签 ND-mwpqvzdweov 建→改→拖动→删",
-      "ms": 3
+      "ev": "便签 ND-mwqpyr5npkb 建→改→拖动→删",
+      "ms": 5
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "节点锁定：锁定后标记落库（前端禁止拖动）",
       "ok": true,
       "ev": "locked 1 → 0",
-      "ms": 2
+      "ms": 1
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "组合出图预览（dryRun）：提示词含人物锚点 + 环境描述 + 参考图",
       "ok": true,
       "ev": "连线即约束生效（612 字）→ 关闭后 538 字",
-      "ms": 2
+      "ms": 3
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "组合出图（真跑）：结果入演员素材库并挂到参与节点",
       "ok": true,
       "ev": "新增 1 张，环境节点挂图 1 张",
-      "ms": 78
+      "ms": 79
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "环境节点单独生成概念图",
       "ok": true,
       "ev": "环境概念图累计 2 张",
-      "ms": 60
+      "ms": 66
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "多画布：新建空画布 / 放入全部 / 清空 / 主画布删除保护",
       "ok": true,
       "ev": "临时画布空→满→空→删；主画布删除返回 400",
-      "ms": 15
+      "ms": 16
     },
     {
       "mod": "1 · 模块1 演员矩阵（档案 / 提示词 / 定妆图 / 矩阵画布）",
       "feature": "安全网：空快照不得清空非空画布，allowEmpty 才允许",
       "ok": true,
       "ev": "拒绝空快照覆盖 8 个卡位",
-      "ms": 0
+      "ms": 1
     },
     {
       "mod": "2 · 模块2 小说工坊（100 题材 / 13 分节大纲 / 章节写作）",
@@ -296,49 +296,49 @@
       "feature": "创建小说（引用模块1 演员 + 自定义角色 + 参考范本）",
       "ok": true,
       "ev": "N-0001《雾港谜案》题材=都市重生复仇 计划 30 章 / 角色 3（引用 2 + 自定义 1）",
-      "ms": 5
+      "ms": 4
     },
     {
       "mod": "2 · 模块2 小说工坊（100 题材 / 13 分节大纲 / 章节写作）",
       "feature": "参数校验：角色规模超 200 / 章节字数越界 / 总字数超 1000 万 / 未知视角 / 引用不存在演员",
       "ok": true,
       "ev": "5 类越界输入全部中文报错拦截",
-      "ms": 2
+      "ms": 3
     },
     {
       "mod": "2 · 模块2 小说工坊（100 题材 / 13 分节大纲 / 章节写作）",
       "feature": "生成章节大纲（13+ 分节：时间线/伏笔/地点ID/人物出场/反转/节奏/钩子/跨季回路/逻辑链）",
       "ok": true,
       "ev": "13 个分节 + 6 章骨架",
-      "ms": 9
+      "ms": 10
     },
     {
       "mod": "2 · 模块2 小说工坊（100 题材 / 13 分节大纲 / 章节写作）",
       "feature": "续规划：保留前 N 章，从第 N+1 章继续",
       "ok": true,
       "ev": "章节 6 → 9（续规划 3 章）",
-      "ms": 9
+      "ms": 7
     },
     {
       "mod": "2 · 模块2 小说工坊（100 题材 / 13 分节大纲 / 章节写作）",
       "feature": "一键优化大纲：产出新版本且不丢章节",
       "ok": true,
       "ev": "版本 3 个，章节仍为 9",
-      "ms": 11
+      "ms": 6
     },
     {
       "mod": "2 · 模块2 小说工坊（100 题材 / 13 分节大纲 / 章节写作）",
       "feature": "批量写作章节（异步任务 + 词数统计）",
       "ok": true,
       "ev": "第 1 章 755 字（任务 ?/2）",
-      "ms": 11
+      "ms": 10
     },
     {
       "mod": "2 · 模块2 小说工坊（100 题材 / 13 分节大纲 / 章节写作）",
       "feature": "单章重写 / 手动保存（字数按 countWords 统计）/ 删除章节",
       "ok": true,
       "ev": "重写第 3 章 / 手改第 1 章 264 字 / 删第 6 章 → 剩 8 章",
-      "ms": 6
+      "ms": 7
     },
     {
       "mod": "2 · 模块2 小说工坊（100 题材 / 13 分节大纲 / 章节写作）",
@@ -352,28 +352,28 @@
       "feature": "导出小说（txt / md / json）",
       "ok": true,
       "ev": "txt 14765B / md 14760B / json 26821B",
-      "ms": 3
+      "ms": 4
     },
     {
       "mod": "3 · 模块3 剧本工厂（分集规划 / 单集剧本 / 分镜 / 提示词 / 导出）",
       "feature": "创建剧本（漫剧格式，60 秒/集，单季 3 集）",
       "ok": true,
       "ev": "SC-0001《雾港谜案·漫剧版》60s/集 × 3 集",
-      "ms": 4
+      "ms": 3
     },
     {
       "mod": "3 · 模块3 剧本工厂（分集规划 / 单集剧本 / 分镜 / 提示词 / 导出）",
       "feature": "剧本参数校验：集数超上限 / 格式非法 / 小说不存在",
       "ok": true,
       "ev": "越界值夹取 + 中文告警（集数→500、时长→15s、形态→manju），小说不存在 400，临时剧本已清理",
-      "ms": 7
+      "ms": 9
     },
     {
       "mod": "3 · 模块3 剧本工厂（分集规划 / 单集剧本 / 分镜 / 提示词 / 导出）",
       "feature": "上传自定义转换技能文档并绑定剧本",
       "ok": true,
       "ev": "sim-skill.md（49 字，来源 upload）",
-      "ms": 2
+      "ms": 3
     },
     {
       "mod": "3 · 模块3 剧本工厂（分集规划 / 单集剧本 / 分镜 / 提示词 / 导出）",
@@ -387,14 +387,14 @@
       "feature": "生成单集剧本（场次 + 台词 + 动作 beat）",
       "ok": true,
       "ev": "8 场 / 64 个 beat（类型分布 action×58 dialogue×6）",
-      "ms": 6
+      "ms": 5
     },
     {
       "mod": "3 · 模块3 剧本工厂（分集规划 / 单集剧本 / 分镜 / 提示词 / 导出）",
       "feature": "绑定画布资产 + 生成分镜（异步任务）",
       "ok": true,
       "ev": "17 个镜头（总时长 60s）",
-      "ms": 24
+      "ms": 22
     },
     {
       "mod": "3 · 模块3 剧本工厂（分集规划 / 单集剧本 / 分镜 / 提示词 / 导出）",
@@ -408,7 +408,7 @@
       "feature": "画布资产令牌注入分镜（canvas set: 环境/物品）",
       "ok": true,
       "ev": "17/17 个镜头带上画布设定，示例：japanese anime style, cel shading, clean lineart, flat color, TV anime key visual, 1boy, young man, 29 years o…",
-      "ms": 1
+      "ms": 2
     },
     {
       "mod": "3 · 模块3 剧本工厂（分集规划 / 单集剧本 / 分镜 / 提示词 / 导出）",
@@ -422,7 +422,7 @@
       "feature": "剧本导出 4 格式 + 单集筛选 + 非法格式拒绝",
       "ok": true,
       "ev": "md / csv / json 均可用（按集导出正常，非法格式 400）",
-      "ms": 12
+      "ms": 13
     },
     {
       "mod": "4 · 模块4 制作台（关键帧 → 视频 → 整集 → 包装 → 流水线）",
@@ -436,49 +436,49 @@
       "feature": "工作量与耗时预估",
       "ok": true,
       "ev": "预估 关键帧 17 / 视频 17 / 约 57.5s（字段：episodes,shots,keyframes,videos,seconds）",
-      "ms": 1
+      "ms": 2
     },
     {
       "mod": "4 · 模块4 制作台（关键帧 → 视频 → 整集 → 包装 → 流水线）",
       "feature": "渲染关键帧（placeholder 出图）→ 文件落盘并绑定到镜头",
       "ok": true,
-      "ev": "17 张关键帧（示例 /var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-w3pHpY/data/images/S_SC-0001/shot_S01E001_1_20261121014421_2c9dda.png）",
-      "ms": 849
+      "ev": "17 张关键帧（示例 /var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-S5NRDG/data/images/S_SC-0001/shot_S01E001_1_20261121180617_b5fde4.png）",
+      "ms": 850
     },
     {
       "mod": "4 · 模块4 制作台（关键帧 → 视频 → 整集 → 包装 → 流水线）",
       "feature": "增量与覆盖：已有跳过 / 指定镜头覆盖重做",
       "ok": true,
       "ev": "跳过 17 镜；单镜覆盖重做后有 2 条记录",
-      "ms": 68
+      "ms": 64
     },
     {
       "mod": "4 · 模块4 制作台（关键帧 → 视频 → 整集 → 包装 → 流水线）",
       "feature": "生成镜头视频（本地 ffmpeg 运镜）→ 落盘 + ffprobe 校验",
       "ok": true,
       "ev": "17 段 mp4｜示例 h264 720x1280 3.00s 154KB",
-      "ms": 6395
+      "ms": 6899
     },
     {
       "mod": "4 · 模块4 制作台（关键帧 → 视频 → 整集 → 包装 → 流水线）",
       "feature": "按成本级筛选提交视频（省算力通道）",
       "ok": true,
       "ev": "成本级「L」共 13 镜已重跑（全部成本级：L / M / H）",
-      "ms": 5314
+      "ms": 5043
     },
     {
       "mod": "4 · 模块4 制作台（关键帧 → 视频 → 整集 → 包装 → 流水线）",
       "feature": "字幕预览（SRT）+ 整集合成（按包装：软字幕 + 静音轨 + 淡入淡出）",
       "ok": true,
-      "ev": "成片 ../../../../../var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-w3pHpY/data/finish/SC-0001_S01E001/S01E001_final_mwpqw9g471e3.mp4｜17 镜 / 47.6s / 1413KB，字幕 1 条",
-      "ms": 3994
+      "ev": "成片 ../../../../../var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-S5NRDG/data/finish/SC-0001_S01E001/S01E001_final_mwqpz1eq1886.mp4｜17 镜 / 47.6s / 1409KB，字幕 1 条",
+      "ms": 3749
     },
     {
       "mod": "4 · 模块4 制作台（关键帧 → 视频 → 整集 → 包装 → 流水线）",
       "feature": "同一集重复封装互不覆盖（文件名唯一）",
       "ok": true,
       "ev": "2 个成片，路径互不覆盖",
-      "ms": 5042
+      "ms": 5805
     },
     {
       "mod": "4 · 模块4 制作台（关键帧 → 视频 → 整集 → 包装 → 流水线）",
@@ -492,28 +492,28 @@
       "feature": "整季流水线：分镜 → 关键帧 → 视频 → 成片（另一集全程自动）",
       "ok": true,
       "ev": "S01E002：17 镜全部出图出片，成片共 2 个",
-      "ms": 12198
+      "ms": 11181
     },
     {
       "mod": "4 · 模块4 制作台（关键帧 → 视频 → 整集 → 包装 → 流水线）",
       "feature": "视频后端探测：placeholder 就绪 / H3 未配置给中文引导",
       "ok": true,
       "ev": "placeholder：ffmpeg 可用，可生成运镜成片｜H3：未配置 ComfyUI 地址（设置 → 视频 → ComfyUI 实例地址）",
-      "ms": 92
+      "ms": 84
     },
     {
       "mod": "4 · 模块4 制作台（关键帧 → 视频 → 整集 → 包装 → 流水线）",
       "feature": "单镜试渲染：有图成功 / 无图给中文提示",
       "ok": true,
-      "ev": "试渲染 /var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-w3pHpY/data/videos/TEST_TEST/kb_test_20261121014455_ade32a.mp4；缺关键帧提示「缺少可用关键帧（请先渲染关键帧，或改用文生视频后端）…」",
-      "ms": 336
+      "ev": "试渲染 /var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-S5NRDG/data/videos/TEST_TEST/kb_test_20261121180651_ac2078.mp4；缺关键帧提示「缺少可用关键帧（请先渲染关键帧，或改用文生视频后端）…」",
+      "ms": 337
     },
     {
       "mod": "4 · 模块4 制作台（关键帧 → 视频 → 整集 → 包装 → 流水线）",
       "feature": "配音后端探测（未启用 → 中文原因，合成回退静音轨）",
       "ok": true,
       "ev": "未启用配音（成片带静音音轨 + 字幕）（试听：[本地配置缺失或非法] 未启用 TTS 后端（设置 → 配音后端））",
-      "ms": 3
+      "ms": 4
     },
     {
       "mod": "4 · 模块4 制作台（关键帧 → 视频 → 整集 → 包装 → 流水线）",
@@ -527,7 +527,7 @@
       "feature": "画布资产包：环境/物品/参考图分类索引 + 汇总",
       "ok": true,
       "ev": "环境 1 · 物品 1 · 参考图 3 · 演员 3 · 连线 3｜环境英文令牌「late night, heavy rain, harbor pier, wooden pier」",
-      "ms": 1
+      "ms": 2
     },
     {
       "mod": "5 · 画布资产桥（资产包 / 绑定 / 分镜增强 / 参考图 / 导出）",
@@ -541,21 +541,21 @@
       "feature": "剧本绑定画布：查询显示绑定成功 / 不存在的画布与剧本被拒",
       "ok": true,
       "ev": "绑定 CV-MAIN「明星矩阵主画布」：环境 1 · 物品 1 · 参考图 3",
-      "ms": 1
+      "ms": 2
     },
     {
       "mod": "5 · 画布资产桥（资产包 / 绑定 / 分镜增强 / 参考图 / 导出）",
       "feature": "关键帧使用画布参考图（useCanvasRefs 开 / 关对比）",
       "ok": true,
       "ev": "开启时记录画布参考图 data/uploads/c.png，关闭后无（useCanvasRefs 开关生效）",
-      "ms": 116
+      "ms": 125
     },
     {
       "mod": "5 · 画布资产桥（资产包 / 绑定 / 分镜增强 / 参考图 / 导出）",
       "feature": "解绑画布后新分镜不再带 canvas set 令牌",
       "ok": true,
       "ev": "S01E003 重新生成 17 镜，带令牌 0 个（已重新绑定）",
-      "ms": 13
+      "ms": 17
     },
     {
       "mod": "5 · 画布资产桥（资产包 / 绑定 / 分镜增强 / 参考图 / 导出）",
@@ -569,34 +569,34 @@
       "feature": "任务取消：批量生成中途取消，任务收口且不留 running 僵尸",
       "ok": true,
       "ev": "批次在取消前已跑完（36/36），取消接口幂等返回 ok，无僵尸任务",
-      "ms": 2899
+      "ms": 2900
     },
     {
       "mod": "6 · 任务队列 / 备份导入 / 流式进度（基础设施）",
       "feature": "任务进度 SSE：/api/jobs-stream 能推事件",
       "ok": true,
       "ev": "收到 1 帧（首帧 data: {\"type\":\"hello\",\"queues\":{\"image\":{\"running\":0,\"limit\":2,\"pendin）",
-      "ms": 73
+      "ms": 82
     },
     {
       "mod": "6 · 任务队列 / 备份导入 / 流式进度（基础设施）",
       "feature": "全量备份导入往返：导出 → 删除 → 导入还原",
       "ok": true,
       "ev": "备份 12 张表 → 导入回填 4 行，字段一致（已清理测试行）",
-      "ms": 31
+      "ms": 34
     },
     {
       "mod": "6 · 任务队列 / 备份导入 / 流式进度（基础设施）",
       "feature": "LLM 连通性自检（mock 通路；真实 Key 走 SIM_REAL_LLM=1）",
       "ok": true,
       "ev": "mock-template｜【离线模板输出】\n（当前 LLM provider = mock，未联网生成。以下为根据提示词生成的结构化占位内容，配置｜0ms",
-      "ms": 1
+      "ms": 0
     }
   ],
   "artifacts": [
     {
       "kind": "定妆图",
-      "rel": "/var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-w3pHpY/data/images/C-0001/full_front_20261121014420_219229.png",
+      "rel": "/var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-S5NRDG/data/images/C-0001/full_front_20261121180616_49d20c.png",
       "note": "沈砚 主图"
     },
     {
@@ -606,22 +606,22 @@
     },
     {
       "kind": "关键帧",
-      "rel": "/var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-w3pHpY/data/images/S_SC-0001/shot_S01E001_1_20261121014421_2c9dda.png",
+      "rel": "/var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-S5NRDG/data/images/S_SC-0001/shot_S01E001_1_20261121180617_b5fde4.png",
       "note": "SH-0001"
     },
     {
       "kind": "镜头视频",
-      "rel": "/var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-w3pHpY/data/videos/SC-0001_S01E001/kb_SH-0001_20261121014422_b3ab35.mp4",
+      "rel": "/var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-S5NRDG/data/videos/SC-0001_S01E001/kb_SH-0001_20261121180618_d4da05.mp4",
       "note": "首镜"
     },
     {
       "kind": "整集成片",
-      "rel": "../../../../../var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-w3pHpY/data/finish/SC-0001_S01E001/S01E001_final_mwpqw9g471e3.mp4",
+      "rel": "../../../../../var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-S5NRDG/data/finish/SC-0001_S01E001/S01E001_final_mwqpz1eq1886.mp4",
       "note": "17 镜"
     },
     {
       "kind": "流水线成片",
-      "rel": "../../../../../var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-w3pHpY/data/finish/SC-0001_S01E002/S01E002_final_mwpqwmbn3374.mp4",
+      "rel": "../../../../../var/folders/xj/25xswv8s2b9083twjns5w78r0000gn/T/sim-all-S5NRDG/data/finish/SC-0001_S01E002/S01E002_final_mwqpzebq2245.mp4",
       "note": "S01E002"
     }
   ]
