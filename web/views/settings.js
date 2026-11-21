@@ -67,7 +67,7 @@ async function load() {
   catch (e) { mm = { error: e.message || String(e) }; }
   const meta = C?.meta || {};
   grid.innerHTML = '';
-  grid.append(llmCard(cfg, health), modelMatrixCard(mm), imageCard(cfg, health), videoCard(cfg, health), ttsCard(cfg, health), dataCard(health), helpCard());
+  grid.append(llmCard(cfg, health), modelMatrixCard(mm), imageCard(cfg, health), videoCard(cfg, health), ttsCard(cfg, health), dataCard(health), helpCard(), contactCard());
 }
 
 // ---------------- LLM ----------------
@@ -1271,6 +1271,22 @@ function helpCard() {
         el('button', { class: 'btn sm', onclick: () => C?.go('script') }, ['🎬 去剧本工厂']),
         el('button', { class: 'btn sm', onclick: () => C?.go('render') }, ['🎞 去制作台']),
       ]),
+    ]),
+  ]);
+}
+
+// ---------------- 联系作者 ----------------
+function contactCard() {
+  return el('div', { class: 'set-card' }, [
+    el('h3', {}, ['📞 联系作者']),
+    el('div', { class: 'b' }, [
+      el('div', { class: 'kv' }, [
+        el('div', { class: 'k' }, ['联系电话']),
+        el('div', {}, [el('a', { href: 'tel:18850293216', text: '18850293216', style: { fontWeight: '600' } })]),
+        el('div', { class: 'k' }, ['用途']),
+        el('div', { text: '项目咨询 · 定制开发 · 商用授权 · 问题反馈' }),
+      ]),
+      el('div', { class: 'hint', style: { marginTop: '8px' } }, ['铭扬漫剧自动化工厂 · 本地部署，数据与密钥不出本机']),
     ]),
   ]);
 }
