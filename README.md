@@ -19,6 +19,11 @@ npm start                                          # 或 node server.js
 - **数据与密钥**：`data/`、`config/config.json`、`config/local.env` 均在 `.gitignore` 内，永不入库
 - **许可**：MIT，见 [LICENSE](./LICENSE)
 
+## 联系作者
+
+- 联系电话：**18850293216**
+- 用途：项目咨询、定制开发、商用授权、问题反馈
+
 ## 自检与文档
 
 > 首次使用建议先跑一次自检：`./scripts/verify-all.sh`（**35 个阶段**，末行打印 `✅ 全部自检通过`；阶段数固定 35，断言合计以脚本输出为准）。

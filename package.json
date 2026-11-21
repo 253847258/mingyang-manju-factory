@@ -19,12 +19,23 @@
     "test:ui": "node tests/ui-novel-smoke.mjs",
     "test:full": "node scripts/run-tests.mjs --full"
   },
+  "author": {
+    "name": "林胜",
+    "tel": "18850293216"
+  },
   "optionalDependencies": {
     "sharp": "^0.35.5"
   },
   "engines": {
     "node": ">=22.5.0"
   },
-  "keywords": ["ai", "comic", "drama", "novel", "storyboard", "character"],
+  "keywords": [
+    "ai",
+    "comic",
+    "drama",
+    "novel",
+    "storyboard",
+    "character"
+  ],
   "license": "MIT"
 }
