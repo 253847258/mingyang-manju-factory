@@ -35,10 +35,10 @@ if [ -f "$CONFIG_FILE" ]; then
   cp -p "$CONFIG_FILE" "$CONFIG_SNAP"
   CONFIG_MD5_BEFORE="$(config_md5)"
   CONFIG_MTIME_BEFORE="$(config_mtime)"
-  echo "【配置守卫】跑前快照：$CONFIG_FILE md5=$CONFIG_MD5_BEFORE（$(wc -c < "$CONFIG_FILE") 字节，副本 $CONFIG_SNAP）"
+  echo "【配置守卫】跑前快照：$CONFIG_FILE md5=${CONFIG_MD5_BEFORE}（$(wc -c < "$CONFIG_FILE") 字节，副本 ${CONFIG_SNAP}）"
   echo "【配置守卫】跑前 mtime：$CONFIG_MTIME_BEFORE"
 else
-  echo "【配置守卫】警告：未找到 $CONFIG_FILE，本轮不做配置守卫（既有阶段判定不变）"
+  echo "【配置守卫】警告：未找到 ${CONFIG_FILE}，本轮不做配置守卫（既有阶段判定不变）"
 fi
 
 # 判定「相对跑前基线变了什么」：输出 md5 | mtime | ""（三种情形互斥，md5 优先）
@@ -69,7 +69,7 @@ guard_restore_on_exit() {
   kind="$(config_drift_kind)"
   if [ -n "$kind" ]; then
     config_restore
-    echo "【配置守卫】脚本中途退出且配置已改写（漂移类型：$kind）→ 已用跑前快照还原（md5=$CONFIG_MD5_BEFORE，mtime=$CONFIG_MTIME_BEFORE）"
+    echo "【配置守卫】脚本中途退出且配置已改写（漂移类型：${kind}）→ 已用跑前快照还原（md5=${CONFIG_MD5_BEFORE}，mtime=${CONFIG_MTIME_BEFORE}）"
   fi
   [ -d "${CONFIG_SNAP_DIR:-}" ] && rm -rf "$CONFIG_SNAP_DIR"
   return 0
@@ -85,10 +85,10 @@ config_guard_stage() {
   [ -n "$kind" ] || return 0
   if [ "$kind" = "md5" ]; then
     md5_now="$(config_md5)"
-    echo "【配置守卫】⚠ 阶段「$name」改写了真实配置 $CONFIG_FILE（md5 $CONFIG_MD5_BEFORE → $md5_now），差异摘要（最多 20 行）："
+    echo "【配置守卫】⚠ 阶段「${name}」改写了真实配置 ${CONFIG_FILE}（md5 $CONFIG_MD5_BEFORE → ${md5_now}），差异摘要（最多 20 行）："
     diff -u "$CONFIG_SNAP" "$CONFIG_FILE" | head -20
   else
-    echo "【配置守卫】⚠ 阶段「$name」同字节重写了真实配置 $CONFIG_FILE（md5 未变 = $CONFIG_MD5_BEFORE，但 mtime 变了）"
+    echo "【配置守卫】⚠ 阶段「${name}」同字节重写了真实配置 ${CONFIG_FILE}（md5 未变 = ${CONFIG_MD5_BEFORE}，但 mtime 变了）"
     echo "【配置守卫】   mtime 跑前：$CONFIG_MTIME_BEFORE"
     echo "【配置守卫】   mtime 跑后：$(config_mtime)"
     echo "【配置守卫】   内容摘要：md5 与跑前逐字节一致 → 属于「写了同样的值」的零字节副作用，但写盘行为本身仍是红线（md5 级门禁发现不了，故本次升级为双比对）"
@@ -96,7 +96,7 @@ config_guard_stage() {
   if config_restore; then
     echo "【配置守卫】↩ 已还原为跑前状态：md5=$(config_md5)，mtime=$(config_mtime)"
   else
-    echo "【配置守卫】❌ 阶段「$name」的自动还原失败：md5=$(config_md5)（期望 $CONFIG_MD5_BEFORE），mtime=$(config_mtime)（期望 $CONFIG_MTIME_BEFORE）"
+    echo "【配置守卫】❌ 阶段「${name}」的自动还原失败：md5=$(config_md5)（期望 ${CONFIG_MD5_BEFORE}），mtime=$(config_mtime)（期望 ${CONFIG_MTIME_BEFORE}）"
     echo "【配置守卫】   请手工执行：cp $CONFIG_SNAP $CONFIG_FILE && touch -r $CONFIG_SNAP $CONFIG_FILE"
     FAILED=1
   fi
@@ -108,9 +108,9 @@ run() {
   echo ""
   echo "════════ $name ════════"
   if "$@"; then
-    echo "── $name：通过"
+    echo "── ${name}：通过"
   else
-    echo "── $name：失败(exit=$?)"
+    echo "── ${name}：失败(exit=$?)"
     FAILED=1
   fi
   config_guard_stage "$name"
@@ -159,7 +159,7 @@ run "2/35 模块1 演员矩阵 API" node tests/test-actors.js
 [ -f scripts/simulate-all.js ] && run "21/35 全模块端到端模拟（演员→小说→剧本→关键帧→视频→成片，离线零成本）" node scripts/simulate-all.js || echo "（跳过全模块模拟：文件缺失）"
 
 if curl -sf -o /dev/null "$BASE/api/health"; then
-  run "22/35 前端端到端冒烟（$BASE）" python3 tests/ui-smoke.py "$BASE"
+  run "22/35 前端端到端冒烟（${BASE}）" python3 tests/ui-smoke.py "$BASE"
   if [ -f tests/ui-simulate.py ]; then
     run "23/35 全模块 UI 模拟（5 个页面，含状态还原校验）" env LD_LIBRARY_PATH="$PWLIBS" python3 tests/ui-simulate.py "$BASE"
   else
@@ -170,19 +170,19 @@ if curl -sf -o /dev/null "$BASE/api/health"; then
   else
     echo "（跳过满配前端检查：tests/ui-scale.py 缺失）"
   fi
-  run "25/35 无限画布功能一致性审计（$BASE）" python3 tests/canvas-audit.py "$BASE"
+  run "25/35 无限画布功能一致性审计（${BASE}）" python3 tests/canvas-audit.py "$BASE"
 else
   echo ""
   echo "（跳过前端冒烟：$BASE 未启动。可先执行 node server.js）"
 fi
 
-# ---- 第 4 波新增阶段（26/35 ~ 30/35）：全部离线纯 Node，不依赖 $BASE；按「末尾追加」接入，上面 25 个阶段一字未改（仅分母 25→30）----
+# ---- 第 4 波新增阶段（26/35 ~ 30/35）：全部离线纯 Node，不依赖 ${BASE}；按「末尾追加」接入，上面 25 个阶段一字未改（仅分母 25→30）----
 [ -f tests/test-schedules.js ] && run "26/35 定时排产（下一次触发/时区与 cron/宽限与补跑策略/暂停联动/幂等去重/预算闸门中文报错）" node tests/test-schedules.js || echo "（跳过定时排产测试：文件缺失）"
 [ -f tests/test-selfheal.js ] && run "27/35 阶段失败自愈（错误分类与可自愈判定/单向降级链/审核与配额不换后端/中文告知/假执行器端到端）" node tests/test-selfheal.js || echo "（跳过阶段自愈测试：文件缺失）"
 [ -f tests/canvas-select.test.mjs ] && run "28/35 画布筛选与多选批处理（谓词组合/危险动作确认闸门/计划与选区同源/中文文案/幂等一致）" node tests/canvas-select.test.mjs || echo "（跳过画布选区测试：文件缺失）"
 [ -f tests/test-subtitle-wrap.js ] && run "29/35 字幕智能断行与安全区联动（标点禁则/数字英文不拆/与既有 buildSRT 逐字节同源/平台预设安全区）" node tests/test-subtitle-wrap.js || echo "（跳过字幕断行测试：文件缺失）"
 [ -f tests/canvas-perf.test.mjs ] && run "30/35 画布性能（视口裁剪/LOD 分级/批量几何/单帧预算与 z 序稳定）" node tests/canvas-perf.test.mjs || echo "（跳过画布性能测试：文件缺失）"
-# ---- 第 5 波新增阶段（31/35 ~ 34/35）：全部离线纯 Node（不依赖 $BASE、不联网、零付费），同「末尾追加」，上面 30 个阶段一字未改（仅分母 30→34）----
+# ---- 第 5 波新增阶段（31/35 ~ 34/35）：全部离线纯 Node（不依赖 ${BASE}、不联网、零付费），同「末尾追加」，上面 30 个阶段一字未改（仅分母 30→34）----
 [ -f tests/test-vision-qc.js ] && run "31/35 视觉质检（多模态请求构造/结论解析/离群判定/代理指标边界/整集质检接入）" node tests/test-vision-qc.js || echo "（跳过视觉质检测试：文件缺失）"
 [ -f tests/test-model-registry.js ] && run "32/35 按角色模型矩阵（4 级优先级/9 厂商/3 档配置/校验与非法补丁整体拒收）" node tests/test-model-registry.js || echo "（跳过模型矩阵测试：文件缺失）"
 [ -f tests/test-interchange-import.js ] && run "33/35 时间线双向交换（FCP7 XML / OTIO 解析 → 画布 clips 计划与中文报错）" node tests/test-interchange-import.js || echo "（跳过时间线导入测试：文件缺失）"
@@ -198,8 +198,8 @@ if [ -n "$CONFIG_MD5_BEFORE" ]; then
   if [ -f "$CONFIG_FILE" ]; then
     CONFIG_MD5_AFTER="$(config_md5)"
     CONFIG_MTIME_AFTER="$(config_mtime)"
-    echo "【配置守卫】跑后比对：md5=$CONFIG_MD5_AFTER（跑前 $CONFIG_MD5_BEFORE）"
-    echo "【配置守卫】跑后 mtime：$CONFIG_MTIME_AFTER（跑前 $CONFIG_MTIME_BEFORE）"
+    echo "【配置守卫】跑后比对：md5=${CONFIG_MD5_AFTER}（跑前 ${CONFIG_MD5_BEFORE}）"
+    echo "【配置守卫】跑后 mtime：${CONFIG_MTIME_AFTER}（跑前 ${CONFIG_MTIME_BEFORE}）"
     if [ "$CONFIG_MD5_AFTER" = "$CONFIG_MD5_BEFORE" ] && [ "$CONFIG_MTIME_AFTER" = "$CONFIG_MTIME_BEFORE" ]; then
       echo "【配置守卫】✅ 跑前跑后 md5 与 mtime 双一致（逐字节且未被重写），无需还原"
       if [ -n "$CONFIG_GUARD_HITS" ]; then
@@ -207,15 +207,15 @@ if [ -n "$CONFIG_MD5_BEFORE" ]; then
       fi
     else
       if [ "$CONFIG_MD5_AFTER" != "$CONFIG_MD5_BEFORE" ]; then
-        echo "【配置守卫】⚠ 警告：本次自检改写了真实配置 $CONFIG_FILE，差异摘要（最多 40 行）："
+        echo "【配置守卫】⚠ 警告：本次自检改写了真实配置 ${CONFIG_FILE}，差异摘要（最多 40 行）："
         diff -u "$CONFIG_SNAP" "$CONFIG_FILE" | head -40
       else
-        echo "【配置守卫】⚠ 警告：本次自检同字节重写了真实配置 $CONFIG_FILE（md5 未变 = $CONFIG_MD5_AFTER，mtime 由 $CONFIG_MTIME_BEFORE 变为 $CONFIG_MTIME_AFTER）"
+        echo "【配置守卫】⚠ 警告：本次自检同字节重写了真实配置 ${CONFIG_FILE}（md5 未变 = ${CONFIG_MD5_AFTER}，mtime 由 $CONFIG_MTIME_BEFORE 变为 ${CONFIG_MTIME_AFTER}）"
       fi
       if config_restore; then
         echo "【配置守卫】↩ 已用跑前快照自动还原：md5=$(config_md5)，mtime=$(config_mtime)（与跑前一致）"
       else
-        echo "【配置守卫】❌ 自动还原失败：md5=$(config_md5)（期望 $CONFIG_MD5_BEFORE），mtime=$(config_mtime)（期望 $CONFIG_MTIME_BEFORE）"
+        echo "【配置守卫】❌ 自动还原失败：md5=$(config_md5)（期望 ${CONFIG_MD5_BEFORE}），mtime=$(config_mtime)（期望 ${CONFIG_MTIME_BEFORE}）"
         echo "【配置守卫】   请手工执行：cp $CONFIG_SNAP $CONFIG_FILE && touch -r $CONFIG_SNAP $CONFIG_FILE"
         FAILED=1
       fi
